@@ -37,13 +37,10 @@ RUN apk update && \
 # Copy giao diện FancyIndex & Login
 COPY fancyindex/ /usr/share/nginx/fancyindex/
 
+# Copy icon.png vào làm Favicon và iOS Homescreen Icon
+COPY icon.png /usr/share/nginx/fancyindex/icon.png
+COPY icon.png /usr/share/nginx/fancyindex/apple-touch-icon.png
+
 # Copy script khởi chạy
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-
-# Các cổng dịch vụ: WebDAV/UI (8090), SMB (445), SFTP (2222), FTP (2121 + Passive 21000-21002)
-EXPOSE 8090 445 2222 2121 21000-21002
-
-VOLUME ["/data", "/storage", "/backup", "/ssl"]
-
-ENTRYPOINT ["/entrypoint.sh"]
