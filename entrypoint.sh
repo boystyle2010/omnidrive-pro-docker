@@ -78,35 +78,68 @@ cfg_val() {
     jq -r "$1" "$CONFIG_PATH"
 }
 
-# 1. Đọc cấu hình từ /data/options.json
-UNIFIED_ROOT=$(cfg_val '.unified_root // true')
-SMB_ENABLED=$(cfg_val '.smb_enabled // true')
-SFTP_ENABLED=$(cfg_val '.sftp_enabled // true')
-FTP_ENABLED=$(cfg_val '.ftp_enabled // true')
-SSL=$(cfg_val '.ssl // false')
-CERTFILE=$(cfg_val '.certfile // "fullchain.pem"')
-KEYFILE=$(cfg_val '.keyfile // "privkey.pem"')
-MAX_UPLOAD=$(cfg_val '.max_upload_size // "0"')
-FANCY_UI=$(cfg_val '.fancy_ui // true')
-SHOW_DOTFILES=$(cfg_val '.show_dotfiles // true')
-LOG_LEVEL=$(cfg_val '.log_level // "info"')
-PASV_ADDRESS="${FTP_PASV_ADDRESS:-}"
+# Tự động tạo /data/options.json từ Biến môi trường (ENV) nếu chưa tồn tại
+if [ ! -f "$CONFIG_PATH" ]; then
+    log_info "Generating default configuration at ${CONFIG_PATH}..."
+    DEFAULT_USER="${OMNI_USER:-admin}"
+    DEFAULT_PASS="${OMNI_PASS:-changeme_strong_password}"
+    
+    cat <<EOF > "$CONFIG_PATH"
+{
+  "unified_root": ${UNIFIED_ROOT:-true},
+  "smb_enabled": ${SMB_ENABLED:-true},
+  "sftp_enabled": ${SFTP_ENABLED:-true},
+  "ftp_enabled": ${FTP_ENABLED:-true},
+  "ssl": ${SSL:-false},
+  "certfile": "${CERTFILE:-fullchain.pem}",
+  "keyfile": "${KEYFILE:-privkey.pem}",
+  "max_upload_size": "${MAX_UPLOAD_SIZE:-0}",
+  "fancy_ui": ${FANCY_UI:-true},
+  "show_dotfiles": ${SHOW_DOTFILES:-true},
+  "log_level": "${LOG_LEVEL:-info}",
+  "users": [
+    {
+      "username": "${DEFAULT_USER}",
+      "password": "${DEFAULT_PASS}"
+    }
+  ],
+  "shares": [
+    { "name": "storage", "path": "/storage", "read_only": false, "allowed_users": [] },
+    { "name": "media",   "path": "/media",   "read_only": false, "allowed_users": [] },
+    { "name": "share",   "path": "/share",   "read_only": false, "allowed_users": [] },
+    { "name": "backup",  "path": "/backup",  "read_only": false, "allowed_users": [] }
+  ]
+}
+EOF
+fi
 
-# 2. Chuẩn bị thư mục gốc hợp nhất (/var/webdav_root)
-mkdir -p "$ROOT_DIR"
+# ... (giữ nguyên phần đọc biến cfg_val) ...
+
+# 2. Chuẩn bị thư mục gốc hợp nhất (/var/webdav_root) + Tự động nhận diện /mnt/*
+mkdir -p "$ROOT_DIR" /mnt
 rm -rf "${ROOT_DIR:?}"/*
 
+# 2A. Gắn các thư mục được khai báo trong options.json
 SHARES_COUNT=$(jq '.shares | length' "$CONFIG_PATH")
 for (( i=0; i<SHARES_COUNT; i++ )); do
     SHARE_NAME=$(jq -r ".shares[$i].name" "$CONFIG_PATH")
     SHARE_PATH=$(jq -r ".shares[$i].path" "$CONFIG_PATH")
 
     if [ ! -d "$SHARE_PATH" ]; then
-        log_warn "Folder ${SHARE_PATH} does not exist, creating it..."
         mkdir -p "$SHARE_PATH"
     fi
-
     ln -sfn "$SHARE_PATH" "${ROOT_DIR}/${SHARE_NAME}"
+done
+
+# 2B. Tự động phát hiện và gắn bất kỳ thư mục nào người dùng mount vào /mnt/<tên_thư_mục>
+for dir in /mnt/*; do
+    if [ -d "$dir" ]; then
+        MNT_NAME=$(basename "$dir")
+        if [ ! -e "${ROOT_DIR}/${MNT_NAME}" ]; then
+            ln -sfn "$dir" "${ROOT_DIR}/${MNT_NAME}"
+            log_info "Auto-mounted custom volume: /mnt/${MNT_NAME} -> /${MNT_NAME}"
+        fi
+    fi
 done
 
 # 3. Tạo tài khoản cho WebDAV (htpasswd) VÀ Linux System Users (cho SMB, SFTP & FTP)
@@ -177,14 +210,23 @@ EOF
         [ "$READ_ONLY" = "true" ] && WRITABLE="no"
         cat <<EOF >> /etc/samba/smb.conf
 
-[${SHARE_NAME}]
-   path = ${SHARE_PATH}
+# Tự động thêm các thư mục trong /mnt/* vào danh sách SMB Share
+    for dir in /mnt/*; do
+        if [ -d "$dir" ]; then
+            MNT_NAME=$(basename "$dir")
+            if ! grep -q "^\[${MNT_NAME}\]" /etc/samba/smb.conf; then
+                cat <<EOF >> /etc/samba/smb.conf
+
+[${MNT_NAME}]
+   path = ${dir}
    browseable = yes
-   writable = ${WRITABLE}
+   writable = yes
    guest ok = no
    force user = root
    force group = root
 EOF
+            fi
+        fi
     done
 
     smbd --foreground --no-process-group </dev/null >/dev/null 2>&1 &
