@@ -4,7 +4,6 @@ services:
     container_name: omnidrive-pro
     restart: unless-stopped
     labels:
-      # Tự động hiển thị icon khi chạy trên CasaOS / Homepage
       icon: "https://raw.githubusercontent.com/boystyle2010/omnidrive-pro/main/icon.png"
     environment:
       - TZ=America/Denver
@@ -15,27 +14,30 @@ services:
       - FTP_ENABLED=true
       - FANCY_UI=true
       - SHOW_DOTFILES=true
+      # Điền IP LAN của máy chủ Linux để FTP Passive Mode hoạt động mượt
       - FTP_PASV_ADDRESS=192.168.1.100
     ports:
-      - "8090:8090"               # Web UI, WebDAV & Share Links
-      - "445:445"                 # SMB / Samba Server
-      - "2222:2222"               # SFTP Server
-      - "2121:2121"               # FTP Control Port
-      - "21000-21002:21000-21002" # FTP Passive Data Ports
+      - "8090:8090"               # Web UI, WebDAV & Share Links[cite: 2]
+      - "445:445"                 # SMB / Samba Server[cite: 2]
+      - "2222:2222"               # SFTP Server[cite: 2]
+      - "2121:2121"               # FTP Control Port[cite: 2]
+      - "21000-21002:21000-21002" # FTP Passive Data Ports[cite: 2]
     volumes:
-      # 1. Dữ liệu hệ thống của OmniDrive Pro (options.json, audit.jsonl, shares.json)
+      # 1. Nơi lưu cấu hình, audit log & share links của OmniDrive Pro
       - ./data:/data
       - ./ssl:/ssl
-
-      # 2. Các thư mục mặc định
+      - ./backup:/backup
       - ./storage:/storage
       - ./media:/media
       - ./share:/share
-      - ./backup:/backup
 
-      # 3. TỰ ĐỘNG MOUNT (AUTO-DISCOVERY):
-      # Bạn muốn quản lý thêm bất kỳ thư mục nào trên máy chủ Linux (như CasaOS AppData, Docker, Downloads...),
-      # chỉ cần mount vào /mnt/<Tên_Thư_Mục> là tự động xuất hiện trên Web, WebDAV, SMB, SFTP & FTP!
-      - /DATA/AppData:/mnt/appdata
-      # - /home/ubuntu:/mnt/home_server
-      # - /etc/docker:/mnt/docker_configs
+      # 2. QUAN TRỌNG: Gắn toàn bộ gốc "/" của máy chủ Linux vào "/host_system"
+      # Giúp bạn xem và sửa được 100% mọi file trên máy chủ
+      - /:/host_root:rw
+
+      # 3. Các lối tắt (Shortcut) hiển thị ngay ngoài màn hình chính để vào nhanh:
+      - /DATA:/mnt/DATA
+      - /home:/mnt/home
+      - /etc:/mnt/etc
+      - /opt:/mnt/opt
+      - /var/log:/mnt/var_log
