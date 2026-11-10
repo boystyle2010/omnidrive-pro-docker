@@ -926,6 +926,7 @@ http {
             error_page 401 = @login_or_basic;
 
             root ${ROOT_DIR};
+            index __omnidrive_no_index__;
             ${INDEX_CONFIG}
 
             dav_methods PUT DELETE MKCOL COPY MOVE;
