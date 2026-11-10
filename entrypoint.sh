@@ -518,10 +518,15 @@ class WProHandler(BaseHTTPRequestHandler):
                 "sftp": bool(cfg.get("sftp_enabled", True)),
                 "ftp": bool(cfg.get("ftp_enabled", True)),
                 "default_user": first_user,
-                "shares": shares
+                "shares": shares,
+                "lan_ip": os.environ.get("FTP_PASV_ADDRESS", ""),
+                "smb_port": int(os.environ.get("SMB_PORT", "4450")),
+                "sftp_port": int(os.environ.get("SFTP_PORT", "2222")),
+                "ftp_port": int(os.environ.get("FTP_PORT", "2121")),
+                "ext_port": int(os.environ.get("EXTERNAL_PORT", "8099"))
             })
             return
-
+            
         if route.startswith("/s/") or route == "/__wpro_api/share_dl":
             token = route.split("/s/")[1].split("/")[0] if route.startswith("/s/") else (qs.get("token", [""])[0])
             shares = load_shares()
