@@ -19,17 +19,17 @@ log_info "--------------------------------------------------------"
 log_info " Initializing OmniDrive Pro v${APP_VERSION} (Standalone Docker)"
 log_info "--------------------------------------------------------"
 
-CONFIG_PATH="/data/options.json"
-HTPASSWD_FILE="/etc/nginx/webdav.htpasswd"
-NGINX_CONF="/etc/nginx/nginx.conf"
-ROOT_DIR="/var/webdav_root"
+CONFIG_PATH="/data/options.json" #[cite: 3]
+HTPASSWD_FILE="/etc/nginx/webdav.htpasswd" #[cite: 3]
+NGINX_CONF="/etc/nginx/nginx.conf" #[cite: 3]
+ROOT_DIR="/var/webdav_root" #[cite: 3]
 WEBDAV_PORT="${WEBDAV_PORT:-8090}"
-API_PORT=8098
-WPRO_DATA="/data/wpro"
+API_PORT=8098 #[cite: 3]
+WPRO_DATA="/data/wpro" #[cite: 3]
 
-mkdir -p "$WPRO_DATA" /backup /storage /media /share /ssl /mnt
-touch "$WPRO_DATA/audit.jsonl"
-[ ! -f "$WPRO_DATA/shares.json" ] && echo "{}" > "$WPRO_DATA/shares.json"
+mkdir -p "$WPRO_DATA" /backup /storage /media /share /ssl /mnt #[cite: 3]
+touch "$WPRO_DATA/audit.jsonl" #[cite: 3]
+[ ! -f "$WPRO_DATA/shares.json" ] && echo "{}" > "$WPRO_DATA/shares.json" #[cite: 3]
 
 # Tự động tạo /data/options.json từ Biến môi trường (ENV) nếu chưa tồn tại
 if [ ! -f "$CONFIG_PATH" ]; then
@@ -84,23 +84,23 @@ SHOW_DOTFILES=$(cfg_val '.show_dotfiles // true')
 LOG_LEVEL=$(cfg_val '.log_level // "info"')
 PASV_ADDRESS="${FTP_PASV_ADDRESS:-}"
 
-# 2. Chuẩn bị thư mục gốc hợp nhất (/var/webdav_root)
-mkdir -p "$ROOT_DIR"
-rm -rf "${ROOT_DIR:?}"/*
+# 2. Chuẩn bị thư mục gốc hợp nhất (/var/webdav_root)[cite: 3]
+mkdir -p "$ROOT_DIR" #[cite: 3]
+rm -rf "${ROOT_DIR:?}"/* #[cite: 3]
 
 # 2A. Gắn các thư mục được khai báo trong options.json
-SHARES_COUNT=$(jq '.shares | length' "$CONFIG_PATH")
-for (( i=0; i<SHARES_COUNT; i++ )); do
-    SHARE_NAME=$(jq -r ".shares[$i].name" "$CONFIG_PATH")
-    SHARE_PATH=$(jq -r ".shares[$i].path" "$CONFIG_PATH")
+SHARES_COUNT=$(jq '.shares | length' "$CONFIG_PATH") #[cite: 3]
+for (( i=0; i<SHARES_COUNT; i++ )); do #[cite: 3]
+    SHARE_NAME=$(jq -r ".shares[$i].name" "$CONFIG_PATH") #[cite: 3]
+    SHARE_PATH=$(jq -r ".shares[$i].path" "$CONFIG_PATH") #[cite: 3]
 
-    if [ ! -d "$SHARE_PATH" ]; then
-        mkdir -p "$SHARE_PATH"
-    fi
-    ln -sfn "$SHARE_PATH" "${ROOT_DIR}/${SHARE_NAME}"
-done
+    if [ ! -d "$SHARE_PATH" ]; then #[cite: 3]
+        mkdir -p "$SHARE_PATH" #[cite: 3]
+    fi #[cite: 3]
+    ln -sfn "$SHARE_PATH" "${ROOT_DIR}/${SHARE_NAME}" #[cite: 3]
+done #[cite: 3]
 
-# 2B. Nếu bạn mount toàn bộ gốc máy chủ Linux vào /host_root -> Tự động hiện lên
+# 2B. Nếu mount toàn bộ gốc máy chủ Linux vào /host_root -> Tự động tạo /host_system
 if [ -d "/host_root" ] && [ -n "$(ls -A /host_root 2>/dev/null)" ]; then
     ln -sfn "/host_root" "${ROOT_DIR}/host_system"
     log_info "Full Host Filesystem mounted at: /host_system"
@@ -117,40 +117,40 @@ for dir in /mnt/*; do
     fi
 done
 
-# 3. Tạo tài khoản cho WebDAV (htpasswd) VÀ Linux System Users (cho SMB, SFTP & FTP)
-rm -f "$HTPASSWD_FILE"
-touch "$HTPASSWD_FILE"
+# 3. Tạo tài khoản cho WebDAV (htpasswd) VÀ Linux System Users (cho SMB, SFTP & FTP)[cite: 3]
+rm -f "$HTPASSWD_FILE" #[cite: 3]
+touch "$HTPASSWD_FILE" #[cite: 3]
 
-USERS_COUNT=$(jq '.users | length' "$CONFIG_PATH")
-if [ "$USERS_COUNT" -eq 0 ]; then
-    exit_nok "Error: you must define at least one account under 'users' in ${CONFIG_PATH}!"
-fi
+USERS_COUNT=$(jq '.users | length' "$CONFIG_PATH") #[cite: 3]
+if [ "$USERS_COUNT" -eq 0 ]; then #[cite: 3]
+    exit_nok "Error: you must define at least one account under 'users' in ${CONFIG_PATH}!" #[cite: 3]
+fi #[cite: 3]
 
-FIRST_USER=""
-for (( i=0; i<USERS_COUNT; i++ )); do
-    USERNAME=$(jq -r ".users[$i].username" "$CONFIG_PATH")
-    PASSWORD=$(jq -r ".users[$i].password" "$CONFIG_PATH")
-    if [ -n "$USERNAME" ] && [ -n "$PASSWORD" ]; then
-        [ -z "$FIRST_USER" ] && FIRST_USER="$USERNAME"
-        htpasswd -Bb "$HTPASSWD_FILE" "$USERNAME" "$PASSWORD" >/dev/null 2>&1
+FIRST_USER="" #[cite: 3]
+for (( i=0; i<USERS_COUNT; i++ )); do #[cite: 3]
+    USERNAME=$(jq -r ".users[$i].username" "$CONFIG_PATH") #[cite: 3]
+    PASSWORD=$(jq -r ".users[$i].password" "$CONFIG_PATH") #[cite: 3]
+    if [ -n "$USERNAME" ] && [ -n "$PASSWORD" ]; then #[cite: 3]
+        [ -z "$FIRST_USER" ] && FIRST_USER="$USERNAME" #[cite: 3]
+        htpasswd -Bb "$HTPASSWD_FILE" "$USERNAME" "$PASSWORD" >/dev/null 2>&1 #[cite: 3]
 
-        if ! id "$USERNAME" >/dev/null 2>&1; then
-            adduser -D -H -h "$ROOT_DIR" -s /bin/bash -G root "$USERNAME" >/dev/null 2>&1 || true
-        fi
-        echo "${USERNAME}:${PASSWORD}" | chpasswd >/dev/null 2>&1 || true
-        (echo "$PASSWORD"; echo "$PASSWORD") | smbpasswd -a -s "$USERNAME" >/dev/null 2>&1 || true
-        smbpasswd -e "$USERNAME" >/dev/null 2>&1 || true
+        if ! id "$USERNAME" >/dev/null 2>&1; then #[cite: 3]
+            adduser -D -H -h "$ROOT_DIR" -s /bin/bash -G root "$USERNAME" >/dev/null 2>&1 || true #[cite: 3]
+        fi #[cite: 3]
+        echo "${USERNAME}:${PASSWORD}" | chpasswd >/dev/null 2>&1 || true #[cite: 3]
+        (echo "$PASSWORD"; echo "$PASSWORD") | smbpasswd -a -s "$USERNAME" >/dev/null 2>&1 || true #[cite: 3]
+        smbpasswd -e "$USERNAME" >/dev/null 2>&1 || true #[cite: 3]
 
-        log_info "Provisioned multi-protocol account: ${USERNAME}"
-    fi
-done
+        log_info "Provisioned multi-protocol account: ${USERNAME}" #[cite: 3]
+    fi #[cite: 3]
+done #[cite: 3]
 
-chmod -R 775 "$ROOT_DIR" || true
+chmod -R 775 "$ROOT_DIR" || true #[cite: 3]
 
-# 4. Khởi động SMB / Samba Server (Port 445)
+# 4. Khởi động SMB / Samba Server (Port 445)[cite: 3]
 if is_true "$SMB_ENABLED"; then
     mkdir -p /var/lib/samba/private /var/log/samba /run/samba
-    cat <<EOF > /etc/samba/smb.conf
+    cat <<EOF > /etc/samba/smb.conf #[cite: 3]
 [global]
    workgroup = WORKGROUP
    server string = OmniDrive Pro (Docker Storage Hub)
@@ -177,14 +177,13 @@ if is_true "$SMB_ENABLED"; then
    guest ok = no
 EOF
 
-    # Vòng lặp 1: Thêm các share từ options.json
-    for (( i=0; i<SHARES_COUNT; i++ )); do
-        SHARE_NAME=$(jq -r ".shares[$i].name" "$CONFIG_PATH")
-        SHARE_PATH=$(jq -r ".shares[$i].path" "$CONFIG_PATH")
-        READ_ONLY=$(jq -r ".shares[$i].read_only" "$CONFIG_PATH")
-        WRITABLE="yes"
-        [ "$READ_ONLY" = "true" ] && WRITABLE="no"
-        cat <<EOF >> /etc/samba/smb.conf
+    for (( i=0; i<SHARES_COUNT; i++ )); do #[cite: 3]
+        SHARE_NAME=$(jq -r ".shares[$i].name" "$CONFIG_PATH") #[cite: 3]
+        SHARE_PATH=$(jq -r ".shares[$i].path" "$CONFIG_PATH") #[cite: 3]
+        READ_ONLY=$(jq -r ".shares[$i].read_only" "$CONFIG_PATH") #[cite: 3]
+        WRITABLE="yes" #[cite: 3]
+        [ "$READ_ONLY" = "true" ] && WRITABLE="no" #[cite: 3]
+        cat <<EOF >> /etc/samba/smb.conf #[cite: 3]
 
 [${SHARE_NAME}]
    path = ${SHARE_PATH}
@@ -194,9 +193,21 @@ EOF
    force user = root
    force group = root
 EOF
-    done
+    done #[cite: 3]
 
-    # Vòng lặp 2: Tự động thêm các thư mục trong /mnt/* vào SMB Share
+    if [ -d "/host_root" ] && [ -n "$(ls -A /host_root 2>/dev/null)" ]; then
+        cat <<EOF >> /etc/samba/smb.conf
+
+[host_system]
+   path = /host_root
+   browseable = yes
+   writable = yes
+   guest ok = no
+   force user = root
+   force group = root
+EOF
+    fi
+
     for dir in /mnt/*; do
         if [ -d "$dir" ]; then
             MNT_NAME=$(basename "$dir")
@@ -215,15 +226,15 @@ EOF
         fi
     done
 
-    smbd --foreground --no-process-group </dev/null >/dev/null 2>&1 &
-    log_info "Protocol [SMB/Samba] active on port 445 (iOS Files, macOS Finder, Windows Explorer)"
-fi
+    smbd --foreground --no-process-group </dev/null >/dev/null 2>&1 & #[cite: 3]
+    log_info "Protocol [SMB/Samba] active on port 445 (iOS Files, macOS Finder, Windows Explorer)" #[cite: 3]
+fi #[cite: 3]
 
-# 5. Khởi động SFTP / OpenSSH Server (Port 2222)
+# 5. Khởi động SFTP / OpenSSH Server (Port 2222)[cite: 3]
 if is_true "$SFTP_ENABLED"; then
-    ssh-keygen -A >/dev/null 2>&1
+    ssh-keygen -A >/dev/null 2>&1 #[cite: 3]
     mkdir -p /run/sshd
-    cat <<EOF > /etc/ssh/sshd_config
+    cat <<EOF > /etc/ssh/sshd_config #[cite: 3]
 Port 2222
 Protocol 2
 PermitRootLogin no
@@ -236,14 +247,14 @@ AllowTcpForwarding no
 X11Forwarding no
 ForceCommand internal-sftp -d ${ROOT_DIR}
 EOF
-    /usr/sbin/sshd -D -e >/dev/null 2>&1 &
-    log_info "Protocol [SFTP] active on port 2222 (SSH File Transfer)"
-fi
+    /usr/sbin/sshd -D -e >/dev/null 2>&1 & #[cite: 3]
+    log_info "Protocol [SFTP] active on port 2222 (SSH File Transfer)" #[cite: 3]
+fi #[cite: 3]
 
-# 6. Khởi động FTP / vsftpd Server (Port 2121, Passive 21000-21002)
+# 6. Khởi động FTP / vsftpd Server (Port 2121, Passive 21000-21002)[cite: 3]
 if is_true "$FTP_ENABLED"; then
     mkdir -p /var/run/vsftpd/empty
-    cat <<EOF > /etc/vsftpd/vsftpd.conf
+    cat <<EOF > /etc/vsftpd/vsftpd.conf #[cite: 3]
 listen=YES
 listen_ipv6=NO
 listen_port=2121
@@ -262,34 +273,34 @@ EOF
     if [ -n "$PASV_ADDRESS" ]; then
         echo "pasv_address=${PASV_ADDRESS}" >> /etc/vsftpd/vsftpd.conf
     fi
-    vsftpd /etc/vsftpd/vsftpd.conf >/dev/null 2>&1 &
-    log_info "Protocol [FTP] active on port 2121 (Passive ports: 21000-21002)"
-fi
+    vsftpd /etc/vsftpd/vsftpd.conf >/dev/null 2>&1 & #[cite: 3]
+    log_info "Protocol [FTP] active on port 2121 (Passive ports: 21000-21002)" #[cite: 3]
+fi #[cite: 3]
 
-# 7. Cấu hình SSL/TLS cho WebDAV & Web UI
-LISTEN_DIRECTIVE="listen ${WEBDAV_PORT};"
-SSL_DIRECTIVES=""
+# 7. Cấu hình SSL/TLS cho WebDAV & Web UI[cite: 3]
+LISTEN_DIRECTIVE="listen ${WEBDAV_PORT};" #[cite: 3]
+SSL_DIRECTIVES="" #[cite: 3]
 if is_true "$SSL"; then
-    if [ ! -f "/ssl/${CERTFILE}" ] || [ ! -f "/ssl/${KEYFILE}" ]; then
-        exit_nok "SSL certificate not found at /ssl/${CERTFILE} or /ssl/${KEYFILE}"
-    fi
-    LISTEN_DIRECTIVE="listen ${WEBDAV_PORT} ssl;"
+    if [ ! -f "/ssl/${CERTFILE}" ] || [ ! -f "/ssl/${KEYFILE}" ]; then #[cite: 3]
+        exit_nok "SSL certificate not found at /ssl/${CERTFILE} or /ssl/${KEYFILE}" #[cite: 3]
+    fi #[cite: 3]
+    LISTEN_DIRECTIVE="listen ${WEBDAV_PORT} ssl;" #[cite: 3]
     SSL_DIRECTIVES="
         ssl_certificate /ssl/${CERTFILE};
         ssl_certificate_key /ssl/${KEYFILE};
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_ciphers HIGH:!aNULL:!MD5;
-    "
-    log_info "Security mode: HTTPS (SSL/TLS) enabled."
-else
-    log_info "Connection mode: standard HTTP (compatible with Cloudflare Tunnel / Reverse Proxy)."
-fi
+    " #[cite: 3]
+    log_info "Security mode: HTTPS (SSL/TLS) enabled." #[cite: 3]
+else #[cite: 3]
+    log_info "Connection mode: standard HTTP (compatible with Cloudflare Tunnel / Reverse Proxy)." #[cite: 3]
+fi #[cite: 3]
 
-# 8. Cấu hình hiển thị File Browser (FancyIndex vs AutoIndex)
-DOTFILES_RULE=""
+# 8. Cấu hình hiển thị File Browser (FancyIndex vs AutoIndex)[cite: 3]
+DOTFILES_RULE="" #[cite: 3]
 if ! is_true "$SHOW_DOTFILES"; then
-    DOTFILES_RULE="location ~ /\. { deny all; }"
-fi
+    DOTFILES_RULE="location ~ /\. { deny all; }" #[cite: 3]
+fi #[cite: 3]
 
 if is_true "$FANCY_UI"; then
     INDEX_CONFIG="
@@ -299,19 +310,19 @@ if is_true "$FANCY_UI"; then
         fancyindex_header \"/.fancyindex/header.html\";
         fancyindex_footer \"/.fancyindex/footer.html\";
         fancyindex_ignore \"fancyindex\";
-    "
-else
+    " #[cite: 3]
+else #[cite: 3]
     INDEX_CONFIG="
         autoindex on;
         autoindex_exact_size off;
         autoindex_localtime on;
-    "
-fi
+    " #[cite: 3]
+fi #[cite: 3]
 
-git config --system --add safe.directory '*' || true
+git config --system --add safe.directory '*' || true #[cite: 3]
 
-# 9. Tạo Python Backend API + Hybrid Auth Engine
-cat << 'PYEOF' > /usr/local/bin/wpro_api.py
+# 9. Tạo Python Backend API + Hybrid Auth Engine[cite: 3]
+cat << 'PYEOF' > /usr/local/bin/wpro_api.py #[cite: 3]
 #!/usr/bin/env python3
 import os, sys, json, time, hmac, hashlib, base64, shutil, secrets, tempfile, subprocess, urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -537,9 +548,12 @@ class WProHandler(BaseHTTPRequestHandler):
 
         if route == "/__wpro_api/disk":
             try:
-                total, used, free = shutil.disk_usage(ROOT_DIR)
+                disk_ref = "/host_root" if os.path.exists("/host_root") else ROOT_DIR
+                total, used, free = shutil.disk_usage(disk_ref)
                 folders = []
                 for name in sorted(os.listdir(ROOT_DIR)):
+                    if name == "host_system":
+                        continue
                     fpath = os.path.join(ROOT_DIR, name)
                     if os.path.isdir(fpath):
                         real_p = os.path.realpath(fpath)
@@ -653,7 +667,6 @@ class WProHandler(BaseHTTPRequestHandler):
             self.send_json({"ok": True}, 200, {"Set-Cookie": cookie_val})
             return
 
-        # Tinh chỉnh thông minh cho cả môi trường HASS và Standalone Docker
         if route == "/__wpro_api/snapshot":
             target_mode = body.get("target", "config")
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -662,7 +675,7 @@ class WProHandler(BaseHTTPRequestHandler):
             os.makedirs(backup_dir, exist_ok=True)
             
             cfg_link = os.path.join(ROOT_DIR, "config")
-            cfg_dir = os.path.realpath(cfg_link) if os.path.exists(cfg_link) else ROOT_DIR
+            cfg_dir = os.path.realpath(cfg_link) if os.path.exists(cfg_link) else os.path.realpath(os.path.join(ROOT_DIR, "storage"))
             try:
                 if target_mode == "automations" and os.path.exists(cfg_link):
                     zip_name = f"quick_automations_{stamp}.zip"
@@ -672,7 +685,7 @@ class WProHandler(BaseHTTPRequestHandler):
                 else:
                     zip_name = f"quick_snapshot_{stamp}.zip"
                     zip_path = os.path.join(backup_dir, zip_name)
-                    cmd = ["zip", "-r", "-y", "-q", zip_path, ".", "-x", "backup/*", "*/home-assistant_v2.db*", "*.db*", "*.log*"]
+                    cmd = ["zip", "-r", "-q", zip_path, ".", "-x", "backup/*", "*.db*", "*.log*"]
                     subprocess.run(cmd, cwd=cfg_dir, check=False, timeout=120)
 
                 size_kb = round(os.path.getsize(zip_path) / 1024, 1) if os.path.exists(zip_path) else 0
@@ -757,14 +770,14 @@ if __name__ == "__main__":
     server = ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), WProHandler)
     server.serve_forever()
 PYEOF
-chmod +x /usr/local/bin/wpro_api.py
+chmod +x /usr/local/bin/wpro_api.py #[cite: 3]
 
-# 10. Khởi chạy Python API ở chế độ nền
-python3 /usr/local/bin/wpro_api.py "${API_PORT}" &
-log_info "Started OmniDrive Pro API & Hybrid Auth Engine on 127.0.0.1:${API_PORT}"
+# 10. Khởi chạy Python API ở chế độ nền[cite: 3]
+python3 /usr/local/bin/wpro_api.py "${API_PORT}" & #[cite: 3]
+log_info "Started OmniDrive Pro API & Hybrid Auth Engine on 127.0.0.1:${API_PORT}" #[cite: 3]
 
-# 11. Sinh file cấu hình Nginx chính
-cat <<EOF > "$NGINX_CONF"
+# 11. Sinh file cấu hình Nginx chính[cite: 3]
+cat <<EOF > "$NGINX_CONF" #[cite: 3]
 load_module /usr/lib/nginx/modules/ngx_http_dav_ext_module.so;
 load_module /usr/lib/nginx/modules/ngx_http_fancyindex_module.so;
 
@@ -903,14 +916,14 @@ http {
 }
 EOF
 
-# 12. Kiểm tra cú pháp Nginx trước khi chạy
-log_info "Checking Nginx configuration syntax..."
-if ! nginx -t 2>&1; then
-    log_error "Invalid Nginx configuration, see the details above."
-    cat -n "$NGINX_CONF" >&2
-    exit_nok "Stopping container due to an Nginx configuration error."
-fi
-log_info "Nginx configuration is valid."
+# 12. Kiểm tra cú pháp Nginx trước khi chạy[cite: 3]
+log_info "Checking Nginx configuration syntax..." #[cite: 3]
+if ! nginx -t 2>&1; then #[cite: 3]
+    log_error "Invalid Nginx configuration, see the details above." #[cite: 3]
+    cat -n "$NGINX_CONF" >&2 #[cite: 3]
+    exit_nok "Stopping container due to an Nginx configuration error." #[cite: 3]
+fi #[cite: 3]
+log_info "Nginx configuration is valid." #[cite: 3]
 
-log_info "OmniDrive Pro v${APP_VERSION} is ready on port ${WEBDAV_PORT}!"
-exec nginx -g "daemon off;"
+log_info "OmniDrive Pro v${APP_VERSION} is ready on port ${WEBDAV_PORT}!" #[cite: 3]
+exec nginx -g "daemon off;" #[cite: 3]
