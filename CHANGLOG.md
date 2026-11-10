@@ -2,7 +2,7 @@
 
 All notable changes to **OmniDrive Pro (Docker Edition)** are documented in this file.
 
-## [1.0.0] - 2026-11-10
+## [1.0.29] - 2026-11-10
 - **Standalone Linux Docker Port:** Ported **OmniDrive Pro** from Home Assistant OS Add-on to a standalone, multi-architecture Linux Docker container (`linux/amd64` & `linux/arm64`) running on official Alpine Linux `3.24` and Nginx `1.30.6-r0`.
 - **Removed `bashio` Dependency:** Replaced Home Assistant `bashio` calls with a pure POSIX/Bash `entrypoint.sh` initializer supporting both Docker Environment Variables (`OMNI_USER`, `OMNI_PASS`, `SMB_ENABLED`, `SFTP_ENABLED`, `FTP_ENABLED`, `FTP_PASV_ADDRESS`) and persistent `/data/options.json` configuration.
 - **Full Host Filesystem Access (`/host_system`):** Added automatic detection for `- /:/host_root:rw` mounts, exposing the entire Linux host filesystem under `/host_system` across Web UI, WebDAV, SMB, SFTP, and FTP.
