@@ -1,0 +1,1887 @@
+</div>
+  <style>
+  @keyframes popIn{from{opacity:0;transform:scale(.95) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+  @keyframes sheetUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}}
+  body.grid-mode #list tbody{background:transparent;border:0;border-radius:0;box-shadow:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(114px,1fr));gap:12px}
+  body.grid-mode #list tr{
+    background:var(--card);border:1px solid var(--glass-border);border-radius:18px;
+    box-shadow:0 10px 28px rgba(0,0,0,.38);
+    display:flex;flex-direction:column;align-items:center;text-align:center;padding:18px 10px 12px;row-gap:4px;
+  }
+  body.grid-mode #list tr::before{display:none}
+  body.grid-mode .more-btn{top:6px;right:6px;transform:none;width:28px;height:28px}
+  body.grid-mode #list td.link a{flex-direction:column;gap:8px;font-size:14px}
+  body.grid-mode #list td.link a .nm{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13.5px}
+  body.grid-mode #list td.size,body.grid-mode #list tr.dir td.date{padding-left:0;font-size:11.5px}
+  body.grid-mode #list td.size::after,body.grid-mode #list tr:not(.dir) td.date{display:none}
+  body.grid-mode .ic{width:46px;height:46px;border-radius:12px}
+  body.grid-mode .ic svg{width:25px;height:25px}
+  body.grid-mode .ic.folder svg{width:48px;height:40px}
+
+  .clip-bar,.batch-bar{
+    position:fixed;bottom:max(18px,env(safe-area-inset-bottom));left:0;right:0;margin:0 auto;
+    width:calc(100% - 32px);max-width:540px;background:rgba(24,28,38,.92);
+    -webkit-backdrop-filter:saturate(190%) blur(24px);backdrop-filter:saturate(190%) blur(24px);
+    border:1px solid rgba(255,255,255,.16);border-radius:18px;padding:11px 15px;
+    display:none!important;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 18px 42px rgba(0,0,0,.75);z-index:80;
+  }
+  .clip-bar.show,.batch-bar.show{display:flex!important;animation:sheetUp .2s cubic-bezier(.2,.9,.3,1)}
+  .clip-info{min-width:0;flex:1;font-size:13.5px}
+  .clip-info b{color:#5ac8fa;display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .clip-info span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+  .clip-btns{display:flex;gap:6px;flex:none;align-items:center}
+  .clip-btn{height:32px;padding:0 13px;border-radius:16px;border:0;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+  .clip-btn.paste{background:var(--blue);color:#fff;box-shadow:0 4px 12px rgba(10,132,255,.35)}
+  .clip-btn.danger{background:rgba(255,69,58,.2);color:var(--red)}
+  .clip-btn.cancel{background:rgba(255,255,255,.08);color:var(--muted)}
+
+  .bg-audio-bar{
+    position:fixed;bottom:max(16px,env(safe-area-inset-bottom));left:0;right:0;margin:0 auto;
+    width:calc(100% - 28px);max-width:500px;height:60px;background:rgba(24,28,38,.92);
+    -webkit-backdrop-filter:saturate(190%) blur(24px);backdrop-filter:saturate(190%) blur(24px);
+    border:1px solid rgba(255,255,255,.16);border-radius:18px;padding:0 13px;
+    display:none!important;align-items:center;justify-content:space-between;gap:10px;
+    box-shadow:0 18px 42px rgba(0,0,0,.78);z-index:85;
+  }
+  .bg-audio-bar.show{display:flex!important;animation:sheetUp .2s cubic-bezier(.2,.9,.3,1)}
+  .bga-art{width:38px;height:38px;border-radius:10px;background:linear-gradient(145deg,#ff5e6c,#ff2d55);display:grid;place-items:center;flex:none;color:#fff;box-shadow:0 4px 12px rgba(255,45,85,.35)}
+  .bga-art svg{width:18px;height:18px}
+  .bga-meta{min-width:0;flex:1}
+  .bga-sub{font-size:10.5px;font-weight:700;color:#5ac8fa;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bga-title{font-size:14px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  .bga-ctrls{display:flex;align-items:center;gap:6px;flex:none}
+  .bga-pill{height:30px;padding:0 10px;border-radius:15px;border:1px solid var(--glass-border);background:rgba(255,255,255,.06);color:#5ac8fa;font-size:12.5px;font-weight:700;cursor:pointer}
+  .bga-ic-btn{width:34px;height:34px;border-radius:50%;border:0;background:var(--blue);color:#fff;display:grid;place-items:center;cursor:pointer;padding:0}
+  .bga-ic-btn.stop{background:rgba(255,69,58,.18);color:var(--red)}
+  .bga-ic-btn svg{width:16px;height:16px}
+
+  .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.58);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none!important;z-index:90}
+  .backdrop.show{display:block!important}
+  .sheet{
+    position:fixed;left:0;right:0;bottom:0;margin:0 auto;
+    width:100%;max-width:500px;padding:0 12px max(14px,env(safe-area-inset-bottom));z-index:95;
+    display:none!important;
+  }
+  .sheet.show{display:block!important;animation:sheetUp .22s cubic-bezier(.2,.9,.3,1)}
+  .sheet-group{
+    background:rgba(24,28,38,.92);-webkit-backdrop-filter:saturate(190%) blur(28px);backdrop-filter:saturate(190%) blur(28px);
+    border:1px solid rgba(255,255,255,.14);border-radius:18px;overflow:hidden;margin-bottom:8px;max-height:76vh;overflow-y:auto;
+    box-shadow:0 20px 50px rgba(0,0,0,.75);
+  }
+  .sheet-head{padding:13px 16px;text-align:center;border-bottom:.5px solid var(--sep);font-size:13px;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sheet-btn{
+    width:100%;padding:13px 18px;border:0;background:none;border-bottom:.5px solid var(--sep);color:#5ac8fa;
+    font-size:16.5px;font-weight:500;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;
+  }
+  .sheet-btn:last-child{border-bottom:0}
+  .sheet-btn:active{background:rgba(255,255,255,.08)}
+  .sheet-btn svg{width:19px;height:19px;flex:none;color:#38bdf8}
+  .sheet-btn.danger{color:var(--red)}
+  .sheet-btn.danger svg{color:var(--red)}
+  .sheet-btn.cancel{justify-content:center;font-weight:600;color:#fff}
+
+  /* IDE CODE EDITOR */
+  .editor-modal{position:fixed;inset:0;background:#0d1117;z-index:120;display:none!important;flex-direction:column}
+  .editor-modal.show{display:flex!important}
+  .editor-modal.zen .ed-subbar{display:none!important}
+  .ed-top{height:52px;padding:0 12px;background:rgba(15,23,42,.95);border-bottom:1px solid rgba(255,255,255,.1);display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none}
+  .ed-title-wrap{min-width:0;flex:1;text-align:center}
+  .ed-title{font-size:15px;font-weight:600;color:#e6edf3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-flex;align-items:center;gap:6px;max-width:100%}
+  .dirty-dot{width:8px;height:8px;border-radius:50%;background:var(--orange);box-shadow:0 0 8px var(--orange);display:none;flex:none}
+  .dirty-dot.show{display:inline-block}
+  .ed-lang-badge{font-size:11px;color:#5ac8fa;font-weight:600;display:block}
+  .ed-btn{height:34px;padding:0 13px;border-radius:10px;border:1px solid rgba(255,255,255,.1);font-size:13.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:none;white-space:nowrap}
+  .ed-btn.close{background:rgba(255,255,255,.07);color:#e5e5ea}
+  .ed-btn.md-toggle{background:rgba(88,166,255,.16);color:#58a6ff;display:none}
+  .ed-btn.md-toggle.active{background:#58a6ff;color:#0d1117}
+  .ed-btn.save{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 4px 14px rgba(10,132,255,.35)}
+  .ed-btn.save.unsaved{background:var(--orange);border-color:var(--orange);box-shadow:0 4px 14px rgba(255,159,10,.4)}
+  .ed-btn.save:disabled{opacity:.45;pointer-events:none}
+
+  .yaml-alert{display:none;padding:8px 14px;background:rgba(255,69,58,.16);border-bottom:1px solid var(--red);color:#ff6961;font-size:12.5px;font-family:"SF Mono",monospace;flex:none}
+  .yaml-alert.show{display:block}
+  .yaml-ok{color:var(--green)!important;background:rgba(48,209,88,.1)!important;border-bottom-color:rgba(48,209,88,.3)!important}
+
+  .ed-subbar{height:38px;padding:0 10px;background:#161b22;border-bottom:1px solid #21262d;display:flex;align-items:center;justify-content:space-between;gap:8px;overflow-x:auto;scrollbar-width:none;flex:none}
+  .ed-subbar::-webkit-scrollbar{display:none}
+  .ed-tools{display:flex;align-items:center;gap:5px;flex:none}
+  .ed-chip{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:7px;height:26px;padding:0 9px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+  .ed-chip:active,.ed-chip.active{background:#30363d;border-color:#58a6ff;color:#58a6ff}
+  .ed-status{font-size:11.5px;color:#8b949e;white-space:nowrap;flex:none}
+
+  .ed-body{flex:1;position:relative;display:flex;overflow:hidden;min-height:0}
+  #aceContainer{position:relative;flex:1;width:100%;height:100%;min-height:240px;font-size:14px}
+  .minimap-wrap{width:58px;height:100%;background:#11161d;border-left:1px solid #21262d;position:relative;display:none;cursor:pointer;flex:none;user-select:none}
+  .minimap-wrap.show{display:block}
+  #minimapCanvas{width:100%;height:100%;display:block}
+  .minimap-vp{position:absolute;left:0;right:0;top:0;height:40px;background:rgba(88,166,255,.22);border-top:1px solid rgba(88,166,255,.55);border-bottom:1px solid rgba(88,166,255,.55);pointer-events:none}
+
+  .ed-textarea{flex:1;width:100%;height:100%;border:0;outline:none;resize:none;padding:14px;background:#0d1117;color:#e6edf3;font-family:"SF Mono",monospace;font-size:14px;line-height:1.55;display:none}
+  .md-view{flex:1;display:none;overflow-y:auto;padding:20px 18px 60px;background:#0d1117;color:#e6edf3;line-height:1.6;font-size:15px}
+  .ed-preview{
+    flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;padding:16px;overflow:auto;gap:14px;
+    background:radial-gradient(circle at 20% 15%,rgba(10,132,255,.2),transparent 45%),
+               radial-gradient(circle at 80% 85%,rgba(94,92,230,.16),transparent 50%),#081121;
+  }
+  .ed-preview img,.ed-preview video{max-width:100%;max-height:72vh;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.7)}
+
+  .ios-player-card{
+    width:100%;max-width:420px;background:var(--card);
+    border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:24px 18px;
+    display:flex;flex-direction:column;align-items:center;gap:16px;box-shadow:0 24px 60px rgba(0,0,0,.75);
+  }
+  .ios-art-big{width:88px;height:88px;border-radius:22px;background:linear-gradient(145deg,#ff5e6c,#ff2d55);display:grid;place-items:center;color:#fff;box-shadow:0 10px 28px rgba(255,45,85,.4)}
+  .ios-art-big svg{width:42px;height:42px}
+  .ios-track-title{font-size:16px;font-weight:700;color:#fff;text-align:center;word-break:break-word;line-height:1.3}
+  .ios-player-card audio{width:100%;height:40px}
+  .media-ctrl-bar{
+    width:100%;max-width:420px;display:flex;flex-direction:column;gap:10px;
+    background:var(--card);border:1px solid rgba(255,255,255,.12);padding:13px;border-radius:18px;
+  }
+  .media-row{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap}
+
+  .pdf-toolbar{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--glass-border);padding:7px 14px;border-radius:12px;color:#e6edf3;font-size:13px;flex-wrap:wrap;justify-content:center}
+  #pdfCanvas{max-width:100%;height:auto;border-radius:8px}
+  .hex-wrap{width:100%;max-width:820px;background:rgba(13,17,23,.85);border:1px solid var(--glass-border);border-radius:14px;padding:14px;overflow:auto;max-height:80vh;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12px;line-height:1.55;color:#e6edf3;align-self:stretch;margin:0 auto}
+  .hex-row{display:grid;grid-template-columns:68px 1fr 125px;gap:10px;white-space:pre;border-bottom:1px solid rgba(255,255,255,.06);padding:2px 0}
+  .hex-off{color:#58a6ff;user-select:none}
+  .hex-bytes{color:#d2a8ff}
+  .hex-ascii{color:#7ee787}
+  .arch-list{width:100%;max-width:680px;background:var(--card);border-radius:16px;border:1px solid var(--glass-border);overflow:hidden;align-self:start;margin:0 auto}
+  .arch-item{padding:11px 14px;border-bottom:.5px solid var(--sep);display:flex;justify-content:space-between;font-size:13.5px;color:#e6edf3;font-family:"SF Mono",monospace}
+
+  /* Pro Suite Modal */
+  .suite-modal{position:fixed;inset:0;background:rgba(0,0,0,.62);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);z-index:130;display:none!important;align-items:center;justify-content:center;padding:14px}
+  .suite-modal.show{display:flex!important}
+  .suite-box{
+    width:100%;max-width:680px;max-height:86vh;
+    background:rgba(24,28,38,.92);-webkit-backdrop-filter:saturate(190%) blur(28px);backdrop-filter:saturate(190%) blur(28px);
+    border:1px solid rgba(255,255,255,.15);border-radius:24px;
+    display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.8);min-width:0;
+    animation:popIn .22s cubic-bezier(.2,.9,.3,1);
+  }
+  .suite-head{padding:14px 18px;background:rgba(255,255,255,.04);border-bottom:.5px solid var(--sep);display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+  .suite-head h3{margin:0;font-size:16.5px;font-weight:700;color:#fff;display:flex;align-items:center;gap:9px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .suite-head h3 svg{width:19px;height:19px;color:#38bdf8;flex:none}
+  .suite-body{padding:18px;overflow-y:auto;overflow-x:hidden;flex:1;color:var(--text);font-size:14px;min-width:0;-webkit-overflow-scrolling:touch}
+
+  /* Custom iOS Glass Confirmation / Prompt Dialog */
+  .ios-dialog-mask{
+    position:fixed;inset:0;background:rgba(0,0,0,.62);
+    -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+    z-index:220;display:none!important;place-items:center;padding:20px;
+  }
+  .ios-dialog-mask.show{display:grid!important}
+  .ios-dialog{
+    width:100%;max-width:340px;background:rgba(28,33,46,.94);
+    -webkit-backdrop-filter:saturate(190%) blur(28px);backdrop-filter:saturate(190%) blur(28px);
+    border:1px solid rgba(255,255,255,.16);border-radius:22px;padding:22px 20px 18px;
+    box-shadow:0 24px 60px rgba(0,0,0,.85);text-align:center;
+    animation:popIn .2s cubic-bezier(.2,.9,.3,1);
+  }
+  .ios-dlg-ic{
+    width:48px;height:48px;margin:0 auto 12px;border-radius:14px;
+    background:rgba(10,132,255,.16);border:1px solid rgba(56,189,248,.4);
+    color:#38bdf8;display:grid;place-items:center;
+  }
+  .ios-dlg-ic.danger{background:rgba(255,69,58,.16);border-color:rgba(255,69,58,.4);color:var(--red)}
+  .ios-dlg-ic.warn{background:rgba(255,159,10,.16);border-color:rgba(255,159,10,.4);color:var(--orange)}
+  .ios-dlg-ic svg{width:24px;height:24px}
+  .ios-dlg-title{margin:0 0 6px;font-size:17.5px;font-weight:700;color:#fff;line-height:1.25}
+  .ios-dlg-msg{margin:0 0 16px;font-size:13.5px;color:var(--muted);line-height:1.45;word-break:break-word}
+  .ios-dlg-input{
+    width:100%;height:42px;margin:0 0 16px;padding:0 13px;border-radius:11px;
+    border:1px solid rgba(255,255,255,.14);background:rgba(15,23,42,.85);color:#fff;
+    font-size:15px;outline:none;display:none;
+  }
+  .ios-dlg-input.show{display:block}
+  .ios-dlg-input:focus{border-color:var(--blue)}
+  .ios-dlg-btns{display:flex;flex-direction:column;gap:8px}
+  .ios-dlg-btn{
+    width:100%;height:42px;border-radius:12px;border:1px solid rgba(255,255,255,.1);
+    background:rgba(255,255,255,.07);color:#fff;font-size:15px;font-weight:600;
+    cursor:pointer;transition:transform .1s,background .15s;
+  }
+  .ios-dlg-btn:active{transform:scale(.98)}
+  .ios-dlg-btn.primary{background:var(--blue);border-color:var(--blue);box-shadow:0 4px 14px rgba(10,132,255,.35)}
+  .ios-dlg-btn.danger{background:rgba(255,69,58,.18);border-color:rgba(255,69,58,.38);color:#ff6961}
+  .ios-dlg-btn.cancel{background:transparent;border-color:transparent;color:var(--muted);font-weight:500;height:38px}
+
+  .snap-stack{display:flex;flex-direction:column;gap:10px;margin:14px 0}
+  .snap-card{
+    width:100%;padding:14px 16px;border-radius:16px;border:1px solid rgba(255,255,255,.1);
+    background:rgba(38,44,58,.65);color:var(--text);text-align:left;cursor:pointer;display:flex;align-items:center;gap:14px;
+    transition:transform .12s,border-color .15s,background .15s;
+  }
+  .snap-card:hover{border-color:rgba(56,189,248,.35)}
+  .snap-card:active{transform:scale(.98);background:var(--card-hover)}
+  .snap-card.primary{background:linear-gradient(145deg,rgba(10,132,255,.24),rgba(15,23,42,.7));border-color:rgba(56,189,248,.45)}
+  .snap-ic{width:42px;height:42px;border-radius:12px;background:linear-gradient(145deg,#0f172a,#1e293b);border:1px solid rgba(56,189,248,.4);color:#38bdf8;display:grid;place-items:center;flex:none;box-shadow:0 4px 12px rgba(10,132,255,.2)}
+  .snap-ic svg{width:21px;height:21px}
+  .snap-txt{min-width:0;flex:1}
+  .snap-txt b{display:block;font-size:15px;font-weight:600;color:#fff;margin-bottom:2px}
+  .snap-txt span{display:block;font-size:12.5px;color:var(--muted);line-height:1.35;word-break:break-all}
+
+  .disk-grid{display:grid;grid-template-columns:190px minmax(0,1fr);gap:18px;align-items:center}
+  @media (max-width:540px){.disk-grid{grid-template-columns:minmax(0,1fr);justify-items:center}}
+  .donut-box{position:relative;width:180px;height:180px;display:grid;place-items:center}
+  .donut-center{position:absolute;text-align:center;line-height:1.25}
+  .donut-center b{font-size:20px;color:#fff;display:block}
+  .donut-center span{font-size:11.5px;color:var(--muted)}
+  .legend-list{width:100%;display:flex;flex-direction:column;gap:8px;min-width:0}
+  .legend-item{display:flex;align-items:center;justify-content:space-between;background:rgba(38,44,58,.55);padding:10px 13px;border-radius:12px;border:1px solid rgba(255,255,255,.08);font-size:13.5px;gap:10px;min-width:0}
+  .legend-left{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
+  .legend-left b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .legend-dot{width:11px;height:11px;border-radius:3px;flex:none}
+
+  .ios-sec-head{display:flex;align-items:center;justify-content:space-between;margin:4px 2px 8px;gap:8px}
+  .ios-sec-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .ios-group-card{background:rgba(38,44,58,.52);border:1px solid rgba(255,255,255,.09);border-radius:15px;overflow:hidden;margin-bottom:16px}
+  .ios-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;border-bottom:.5px solid var(--sep);min-width:0}
+  .ios-row:last-child{border-bottom:0}
+  .ios-row-main{min-width:0;flex:1}
+  .ios-row-top{display:flex;align-items:center;gap:7px;min-width:0}
+  .ios-row-title{font-size:14px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ios-row-sub{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ios-row-more{width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:#5ac8fa;display:grid;place-items:center;cursor:pointer;flex:none}
+  .ios-row-more svg{width:16px;height:16px}
+
+  .badge-m{padding:2px 7px;border-radius:6px;font-size:10.5px;font-weight:700;flex:none;white-space:nowrap;font-family:"SF Mono",monospace}
+  .badge-PUT,.badge-SNAPSHOT,.badge-SHARE_CREATE,.badge-MKCOL,.badge-WEB_LOGIN{background:rgba(48,209,88,.18);color:#30d158}
+  .badge-DELETE,.badge-SHARE_REVOKE,.badge-LOGIN_FAIL{background:rgba(255,69,58,.18);color:#ff453a}
+  .badge-GET,.badge-SHARE_DL,.badge-COPY,.badge-MOVE,.badge-TERM_CMD{background:rgba(10,132,255,.18);color:#58a6ff}
+  .term-frame{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:#000;overflow:hidden}
+  .empty{display:none;text-align:center;padding:42px 20px;color:var(--muted);font-size:15px}
+  .empty.show{display:block}
+  .stat{text-align:center;color:var(--muted);font-size:13px;margin:18px 0 6px}
+  .toast{
+    position:fixed;bottom:28px;left:0;right:0;margin:0 auto;width:max-content;max-width:90vw;
+    transform:translateY(20px);
+    background:rgba(24,28,38,.94);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);
+    border:1px solid rgba(255,255,255,.16);color:#fff;padding:10px 18px;border-radius:20px;font-size:13.5px;font-weight:600;
+    opacity:0;pointer-events:none;transition:all .22s ease;z-index:260;box-shadow:0 10px 28px rgba(0,0,0,.6);white-space:nowrap;
+  }
+  .toast.show{opacity:1;transform:translateY(0)}
+  </style>
+
+  <div id="empty" class="empty">No matching items found</div>
+  <div id="stat" class="stat"></div>
+
+  <div id="bgAudioBar" class="bg-audio-bar" style="display:none">
+    <div class="bga-art">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    </div>
+    <div class="bga-meta">
+      <div class="bga-sub">BACKGROUND AUDIO • <span id="bgAudioSpeedLabel">1.0x</span></div>
+      <div id="bgAudioTitle" class="bga-title">audio.mp3</div>
+    </div>
+    <div class="bga-ctrls">
+      <button id="btnBgSpeed" class="bga-pill" type="button">1.0x</button>
+      <button id="btnBgPlayPause" class="bga-ic-btn" type="button" aria-label="Play or Pause">
+        <svg id="bgPlayPauseSvg" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      </button>
+      <button id="btnBgStop" class="bga-ic-btn stop" type="button" aria-label="Stop">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <audio id="bgAudioEl" style="display:none"></audio>
+  </div>
+
+  <div id="batchBar" class="batch-bar" style="display:none">
+    <div class="clip-info"><b>BATCH SELECTION</b><span id="batchCount">0 items selected</span></div>
+    <div class="clip-btns">
+      <button id="btnBatchCopy" class="clip-btn paste" type="button">Copy</button>
+      <button id="btnBatchMove" class="clip-btn cancel" type="button">Move</button>
+      <button id="btnBatchDel" class="clip-btn danger" type="button">Delete</button>
+    </div>
+  </div>
+
+  <div id="clipBar" class="clip-bar" style="display:none">
+    <div class="clip-info"><b id="clipMode">COPIED</b><span id="clipName">filename.yaml</span></div>
+    <div class="clip-btns">
+      <button id="btnPaste" class="clip-btn paste" type="button">Paste Here</button>
+      <button id="btnCancelClip" class="clip-btn cancel" type="button">Cancel</button>
+    </div>
+  </div>
+
+  <div id="backdrop" class="backdrop" style="display:none"></div>
+  <div id="sheet" class="sheet" style="display:none">
+    <div class="sheet-group">
+      <div id="sheetTitle" class="sheet-head">Item Actions</div>
+      <button id="actEdit" class="sheet-btn" type="button">
+        <span>Open in Code Editor</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      </button>
+      <button id="actHex" class="sheet-btn" type="button">
+        <span>Hex / Binary Inspector</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+      </button>
+      <button id="actShareLink" class="sheet-btn" type="button">
+        <span>Create Expiry Share Link</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+      </button>
+      <button id="actCopy" class="sheet-btn" type="button">
+        <span>Copy</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      </button>
+      <button id="actCut" class="sheet-btn" type="button">
+        <span>Move (Cut)</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </button>
+      <button id="actDup" class="sheet-btn" type="button">
+        <span>Duplicate</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/><path d="M14 12v4M12 14h4"/></svg>
+      </button>
+      <button id="actRename" class="sheet-btn" type="button">
+        <span>Rename</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+      </button>
+      <button id="actCopyPath" class="sheet-btn" type="button">
+        <span>Copy Full Path</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      </button>
+      <button id="actDownload" class="sheet-btn" type="button">
+        <span>Download</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
+      <button id="actDelete" class="sheet-btn danger" type="button">
+        <span>Delete</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      </button>
+    </div>
+    <div class="sheet-group">
+      <button id="actCancelSheet" class="sheet-btn cancel" type="button">Cancel</button>
+    </div>
+  </div>
+
+  <!-- IDE & SMART VIEWER MODAL -->
+  <div id="editorModal" class="editor-modal" style="display:none">
+    <div class="ed-top">
+      <button id="edClose" class="ed-btn close" type="button">Done</button>
+      <div class="ed-title-wrap">
+        <div class="ed-title">
+          <span id="dirtyDot" class="dirty-dot" title="Unsaved changes"></span>
+          <span id="edTitle">configuration.yaml</span>
+        </div>
+        <div id="edLang" class="ed-lang-badge">YAML</div>
+      </div>
+      <button id="edMdToggle" class="ed-btn md-toggle" type="button">Preview</button>
+      <button id="edSave" class="ed-btn save" type="button">Save</button>
+    </div>
+    <div id="yamlAlert" class="yaml-alert"></div>
+    <div id="edSubbar" class="ed-subbar">
+      <div class="ed-tools">
+        <button id="edUndo" class="ed-chip" type="button">↶</button>
+        <button id="edRedo" class="ed-chip" type="button">↷</button>
+        <button id="edFind" class="ed-chip" type="button">Find</button>
+        <button id="edMultiCursor" class="ed-chip" type="button" title="Add cursor to next occurrence">✚ Cursor</button>
+        <button id="edTab" class="ed-chip" type="button">⇥ Tab</button>
+        <button id="edComment" class="ed-chip" type="button">#</button>
+        <button id="edFontUp" class="ed-chip" type="button">A+</button>
+        <button id="edFontDown" class="ed-chip" type="button">A-</button>
+        <button id="edWrap" class="ed-chip" type="button">↵ Wrap</button>
+        <button id="edMinimapToggle" class="ed-chip active" type="button">Map</button>
+        <button id="edZen" class="ed-chip" type="button">Zen</button>
+      </div>
+      <span id="edStatus" class="ed-status">UTF-8</span>
+    </div>
+    <div class="ed-body">
+      <div id="aceContainer"></div>
+      <div id="minimapWrap" class="minimap-wrap">
+        <canvas id="minimapCanvas"></canvas>
+        <div id="minimapVp" class="minimap-vp"></div>
+      </div>
+      <textarea id="edArea" class="ed-textarea" spellcheck="false"></textarea>
+      <div id="mdView" class="md-view"></div>
+      <div id="edPreview" class="ed-preview"></div>
+    </div>
+  </div>
+
+  <!-- PRO SUITE MODAL -->
+  <div id="suiteModal" class="suite-modal" style="display:none">
+    <div class="suite-box">
+      <div class="suite-head">
+        <h3 id="suiteTitle">System Tool</h3>
+        <button id="suiteClose" class="ed-btn close" type="button">Done</button>
+      </div>
+      <div id="suiteBody" class="suite-body"></div>
+    </div>
+  </div>
+
+  <!-- CUSTOM iOS GLASS CONFIRMATION / PROMPT DIALOG -->
+  <div id="iosDialogMask" class="ios-dialog-mask" style="display:none">
+    <div class="ios-dialog">
+      <div id="iosDlgIcon" class="ios-dlg-ic"></div>
+      <h4 id="iosDlgTitle" class="ios-dlg-title">Confirm Action</h4>
+      <p id="iosDlgMsg" class="ios-dlg-msg">Are you sure?</p>
+      <input id="iosDlgInput" class="ios-dlg-input" type="text" autocomplete="off">
+      <div id="iosDlgBtns" class="ios-dlg-btns"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">Saved successfully</div>
+</div>
+<script>
+(function () {
+  var GL = {
+    img:'<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4.5 3.5 3 3-2.5 4.5 4"/>',
+    vid:'<rect x="3" y="6.5" width="12.5" height="11" rx="2.5"/><path d="M15.5 10.5l5-3v9l-5-3z"/>',
+    aud:'<path d="M9 17.5V6l10-2v11.5"/><circle cx="6.8" cy="17.5" r="2.2"/><circle cx="16.8" cy="15.5" r="2.2"/>',
+    doc:'<path d="M7 3.5h6.5L19 9v11.5H7z"/><path d="M13.5 3.5V9H19"/>',
+    txt:'<path d="M5 7h14M5 11h14M5 15h14M5 19h8"/>',
+    zip:'<path d="M3.5 8h17v11.5h-17zM3 4.5h18V8H3zM10 12h4"/>',
+    cfg:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
+    code:'<path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/>',
+    md:'<path d="M4 7h16v10H4z"/><path d="M7 14V10l2 2 2-2v4M15 14v-4M13.5 12.5L15 14l1.5-1.5"/>',
+    hex:'<path d="M4 6h16M4 12h16M4 18h16M8 4v16M16 4v16"/>'
+  };
+  var T = [
+    ['img','img','jpg jpeg png gif webp heic bmp svg ico'],
+    ['vid','vid','mp4 mkv mov avi webm m4v'],
+    ['aud','aud','mp3 flac wav m4a ogg aac'],
+    ['pdf','doc','pdf'],['md','md','md markdown'],
+    ['doc','doc','doc docx odt rtf pages'],['xls','doc','xls xlsx csv ods numbers'],
+    ['ppt','doc','ppt pptx key'],['txt','txt','txt log'],
+    ['zip','zip','zip tar gz tgz rar 7z xz'],
+    ['cfg','cfg','yaml yml json conf cfg ini toml env lock'],
+    ['code','code','py js ts sh html css xml php sql dockerfile'],
+    ['hex','hex','db sqlite sqlite3 bin dat so wasm pyc']
+  ];
+  var EDITABLE_EXT = /^(yaml|yml|json|conf|cfg|ini|toml|env|lock|txt|md|markdown|log|py|js|ts|sh|bash|html|htm|css|xml|php|sql|csv|gitignore|dockerignore|htaccess)$/i;
+  var IMG_EXT = /^(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i;
+  var VID_EXT = /^(mp4|webm|mov|m4v)$/i;
+  var AUD_EXT = /^(mp3|wav|m4a|ogg|aac|flac)$/i;
+  var ARCH_EXT = /^(zip|tar)$/i;
+  var BIN_HEX_EXT = /^(db|sqlite|sqlite3|bin|dat|so|wasm|pyc)$/i;
+  var ACE_MODES = {yaml:'yaml',yml:'yaml',json:'json',py:'python',sh:'sh',bash:'sh',js:'javascript',ts:'typescript',html:'html',htm:'html',css:'css',php:'php',xml:'xml',sql:'sql',md:'markdown',markdown:'markdown',ini:'ini',conf:'sh',cfg:'ini',toml:'toml',dockerfile:'dockerfile'};
+
+  var MAP = {};
+  T.forEach(function (t) { t[2].split(' ').forEach(function (e) { MAP[e] = [t[0], t[1]]; }); });
+  var FOLDER = '<span class="ic folder"><svg viewBox="0 0 36 30"><path fill="#0a84ff" d="M2 5.5A3.5 3.5 0 0 1 5.5 2h7.6a3.5 3.5 0 0 1 2.7 1.3l1.5 1.8a3.5 3.5 0 0 0 2.7 1.3H30.5A3.5 3.5 0 0 1 34 9.9v14.6A3.5 3.5 0 0 1 30.5 28h-25A3.5 3.5 0 0 1 2 24.5z"/><path fill="#5ac8fa" d="M2 10.5A3.5 3.5 0 0 1 5.5 7h25A3.5 3.5 0 0 1 34 10.5v14A3.5 3.5 0 0 1 30.5 28h-25A3.5 3.5 0 0 1 2 24.5z"/></svg></span>';
+  var CHECK_ICON = '<span class="sel-chk"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>';
+  var MORE_DOTS_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+
+  function fileIcon(name) {
+    var m = /\.([a-z0-9]+)$/i.exec(name);
+    var t = (m && MAP[m[1].toLowerCase()]) || ['file', 'doc'];
+    return '<span class="ic t-' + t[0] + '"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + GL[t[1]] + '</svg></span>';
+  }
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+  function up(n) { return n > 0 ? new Array(n + 1).join('../') : './'; }
+  function fmtBytes(b) {
+    if (!b || b <= 0) return '0 B';
+    var u = ['B','KB','MB','GB','TB'], i = Math.floor(Math.log(b) / Math.log(1024));
+    return (b / Math.pow(1024, i)).toFixed(i > 1 ? 2 : 1) + ' ' + u[i];
+  }
+  function showToast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    setTimeout(function () { t.classList.remove('show'); }, 2400);
+  }
+
+  // Hệ thống Hộp thoại iOS Glassmorphism
+  var iosDialogMask = document.getElementById('iosDialogMask');
+  var iosDlgIcon = document.getElementById('iosDlgIcon');
+  var iosDlgTitle = document.getElementById('iosDlgTitle');
+  var iosDlgMsg = document.getElementById('iosDlgMsg');
+  var iosDlgInput = document.getElementById('iosDlgInput');
+  var iosDlgBtns = document.getElementById('iosDlgBtns');
+
+  var DLG_ICONS = {
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>',
+    warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    danger: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
+  };
+
+  function showIosDialog(opts) {
+    var type = opts.type || 'info';
+    iosDlgIcon.className = 'ios-dlg-ic' + (type === 'danger' ? ' danger' : (type === 'warn' ? ' warn' : ''));
+    iosDlgIcon.innerHTML = DLG_ICONS[type] || DLG_ICONS.info;
+    iosDlgTitle.textContent = opts.title || 'Confirm';
+    iosDlgMsg.innerHTML = opts.message || '';
+
+    if (opts.input) {
+      iosDlgInput.classList.add('show');
+      iosDlgInput.value = opts.defaultValue || '';
+      iosDlgInput.placeholder = opts.placeholder || '';
+    } else {
+      iosDlgInput.classList.remove('show');
+    }
+
+    iosDlgBtns.innerHTML = '';
+    (opts.buttons || []).forEach(function (b) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ios-dlg-btn ' + (b.role || '');
+      btn.textContent = b.label;
+      btn.addEventListener('click', function () {
+        var val = iosDlgInput.value;
+        iosDialogMask.classList.remove('show');
+        if (b.onClick) b.onClick(val);
+      });
+      iosDlgBtns.appendChild(btn);
+    });
+
+    iosDialogMask.classList.add('show');
+    if (opts.input) {
+      setTimeout(function () { iosDlgInput.focus(); iosDlgInput.select(); }, 60);
+    }
+  }
+
+  iosDlgInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      var primaryBtn = iosDlgBtns.querySelector('.primary');
+      if (primaryBtn) primaryBtn.click();
+    }
+  });
+
+  // 1. Gắn App Icon nhỏ lên thanh tiêu đề + TỰ ĐỘNG KHÔI PHỤC MÀU NỀN GỐC CHO HOME ASSISTANT (Tuyệt đối không làm lem màu sang Dashboard)
+  function injectTopBarIconClean() {
+    try {
+      if (!window.parent || window.parent === window) return;
+      var doc = window.parent.document;
+      // Xóa sạch mọi thuộc tính background-color từng bị gán nhầm lên cửa sổ cha của HASS
+      if (doc.documentElement) doc.documentElement.style.removeProperty('background-color');
+      if (doc.body) doc.body.style.removeProperty('background-color');
+      if (window.frameElement) {
+        window.frameElement.style.removeProperty('background-color');
+        window.frameElement.style.removeProperty('height');
+        window.frameElement.style.removeProperty('margin-bottom');
+        if (window.frameElement.parentElement) {
+          window.frameElement.parentElement.style.removeProperty('background-color');
+        }
+      }
+
+      var walk = function (root) {
+        if (!root) return;
+        var nodes = root.querySelectorAll ? root.querySelectorAll('.main-title, [slot="title"], .title') : [];
+        for (var i = 0; i < nodes.length; i++) {
+          var el = nodes[i];
+          var txt = el.textContent ? el.textContent.trim() : '';
+          if ((txt.indexOf('WebDAV') !== -1 || txt.indexOf('OmniDrive') !== -1)) {
+            if (txt.indexOf('(') !== -1) {
+              el.textContent = 'OmniDrive Pro';
+            }
+            if (!el.querySelector('.wpro-ha-ic')) {
+              el.style.display = 'inline-flex'; el.style.alignItems = 'center'; el.style.gap = '9px';
+              var span = doc.createElement('span');
+              span.className = 'wpro-ha-ic';
+              span.style.cssText = 'display:inline-grid;place-items:center;width:24px;height:24px;border-radius:6px;background:linear-gradient(145deg,#0f172a,#1e293b);border:1px solid rgba(56,189,248,0.5);flex:none;';
+              span.innerHTML = '<svg width="16" height="16" viewBox="0 0 36 36" fill="none"><circle cx="18" cy="18" r="14" stroke="#a855f7" stroke-width="2" stroke-dasharray="3.5 2.5"/><rect x="9" y="10" width="18" height="7" rx="2" fill="#0f172a" stroke="#38bdf8" stroke-width="2.2"/><circle cx="13" cy="13.5" r="1.2" fill="#30d158"/><rect x="9" y="19" width="18" height="7" rx="2" fill="#0f172a" stroke="#0a84ff" stroke-width="2.2"/><circle cx="13" cy="22.5" r="1.2" fill="#38bdf8"/></svg>';
+              el.insertBefore(span, el.firstChild);
+            }
+          }
+        }
+        var all = root.querySelectorAll ? root.querySelectorAll('*') : [];
+        for (var j = 0; j < all.length; j++) {
+          if (all[j].tagName === 'HASS-SUBPAGE' || all[j].tagName === 'HA-PANEL-CUSTOM' || all[j].tagName === 'HA-INGRESS') {
+            all[j].style.removeProperty('background-color');
+          }
+          if (all[j].shadowRoot) walk(all[j].shadowRoot);
+        }
+      };
+      walk(doc);
+    } catch (e) {}
+  }
+  injectTopBarIconClean();
+  setTimeout(injectTopBarIconClean, 350);
+
+  // 2. Đường dẫn Ingress, WebDAV & Nút Sign Out
+  var ingressMatch = location.pathname.match(/^(\/api\/hassio_ingress\/[^\/]+)/);
+  var ingressPrefix = ingressMatch ? ingressMatch[1] : '';
+  var p = location.pathname.replace(/^\/api\/hassio_ingress\/[^\/]+/, '') || '/';
+  if (!/\/$/.test(p)) p += '/';
+  var segs = p.split('/').filter(Boolean).map(function (s) { try { return decodeURIComponent(s); } catch (e) { return s; } });
+
+  var btnLogout = document.getElementById('btnLogout');
+  if (!ingressPrefix && btnLogout) {
+    btnLogout.classList.add('show');
+    btnLogout.addEventListener('click', function () {
+      showIosDialog({
+        type: 'warn',
+        title: 'Sign Out',
+        message: 'Are you sure you want to sign out of OmniDrive Pro on this device?',
+        buttons: [
+          { label: 'Sign Out', role: 'danger', onClick: function () {
+            fetch('/__wpro_api/logout', { method: 'POST' }).then(function () {
+              location.replace('/.fancyindex/login.html');
+            });
+          }},
+          { label: 'Cancel', role: 'cancel' }
+        ]
+      });
+    });
+  }
+
+  function buildWebdavUrl(relPath) {
+    if (!relPath) return location.pathname;
+    if (/^https?:\/\//i.test(relPath)) return relPath;
+    if (relPath.indexOf('/') === 0) return ingressPrefix + relPath;
+    var cleanRel = relPath.replace(/^\.\//, '');
+    return location.pathname.replace(/\/?$/, '/') + cleanRel;
+  }
+  function apiUrl(endpoint) { return ingressPrefix + '/__wpro_api/' + endpoint; }
+  function buildDestinationHeader(targetInternalPath) { return location.origin + targetInternalPath; }
+
+  // 3. Tiêu đề, Back & Breadcrumbs
+  document.getElementById('title').textContent = segs.length ? segs[segs.length - 1] : 'OmniDrive Pro';
+  var nav = document.getElementById('nav'), back = document.getElementById('back');
+  if (segs.length) {
+    back.querySelector('span').textContent = segs.length > 1 ? segs[segs.length - 2] : 'Home';
+    nav.classList.add('show');
+  }
+  var homeIcon = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5z"/></svg>';
+  var html = segs.length ? '<a href="' + up(segs.length) + '">' + homeIcon + 'Home</a>' : '<b data-copy="/">' + homeIcon + 'Home</b>';
+  segs.forEach(function (s, i) {
+    var last = i === segs.length - 1, fullPath = '/' + segs.slice(0, i + 1).join('/');
+    html += '<span class="sep">›</span>' + (last ? '<b data-copy="' + esc(fullPath) + '">' + esc(s) + '</b>' : '<a href="' + up(segs.length - 1 - i) + '">' + esc(s) + '</a>');
+  });
+  var crumbsEl = document.getElementById('crumbs');
+  crumbsEl.innerHTML = html; crumbsEl.scrollLeft = crumbsEl.scrollWidth;
+  crumbsEl.addEventListener('click', function (e) {
+    var b = e.target.closest('b[data-copy]');
+    if (b && navigator.clipboard) { navigator.clipboard.writeText(b.getAttribute('data-copy')); showToast('Copied path: ' + b.getAttribute('data-copy')); }
+  });
+
+  // 4. Danh sách hàng, Multi-Select & Git Status Integration
+  var rows = [].slice.call(document.querySelectorAll('#list tbody tr'));
+  var nd = 0, nf = 0, selectMode = false, selectedSet = [], rowMapByName = {};
+  var btnSelectMode = document.getElementById('btnSelectMode'), batchBar = document.getElementById('batchBar'), batchCountEl = document.getElementById('batchCount');
+
+  function updateBatchUI() {
+    batchCountEl.textContent = plural(selectedSet.length, 'item') + ' selected';
+    batchBar.classList.toggle('show', selectMode && selectedSet.length > 0);
+  }
+  btnSelectMode.addEventListener('click', function () {
+    selectMode = !selectMode;
+    document.body.classList.toggle('select-mode', selectMode);
+    btnSelectMode.classList.toggle('active', selectMode);
+    btnSelectMode.textContent = selectMode ? 'Done' : 'Select';
+    if (!selectMode) { selectedSet = []; rows.forEach(function (r) { r.classList.remove('selected'); }); }
+    updateBatchUI();
+  });
+
+  rows.forEach(function (tr) {
+    var a = tr.querySelector('td.link a');
+    if (!a) return;
+    var href = a.getAttribute('href') || '', name = (a.getAttribute('title') || a.textContent || '').trim();
+    if (tr.classList.contains('parent') || href === '../') { tr.classList.add('parent'); return; }
+    var isDir = /\/$/.test(href), label = name.replace(/\/$/, '');
+    if (isDir) { tr.classList.add('dir'); nd++; } else { nf++; }
+    a.innerHTML = CHECK_ICON + (isDir ? FOLDER : fileIcon(label)) + '<span class="nm"><span class="nm-txt">' + esc(label) + '</span></span>';
+    tr.setAttribute('data-n', label.toLowerCase());
+    rowMapByName[label] = tr;
+    var itemObj = { name: label, href: href, isDir: isDir, internalPath: p + encodeURIComponent(label) + (isDir ? '/' : '') };
+
+    var moreBtn = document.createElement('button');
+    moreBtn.type = 'button'; moreBtn.className = 'more-btn';
+    moreBtn.innerHTML = MORE_DOTS_SVG;
+    moreBtn.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); openActionSheet(itemObj); });
+    tr.appendChild(moreBtn);
+
+    tr.addEventListener('click', function (e) {
+      if (e.target.closest('.more-btn')) return;
+      e.preventDefault();
+      if (selectMode) {
+        var idx = selectedSet.indexOf(itemObj);
+        if (idx === -1) { selectedSet.push(itemObj); tr.classList.add('selected'); }
+        else { selectedSet.splice(idx, 1); tr.classList.remove('selected'); }
+        updateBatchUI(); return;
+      }
+      if (isDir) location.href = href; else openSmartViewer(itemObj);
+    });
+  });
+
+  var summaryText = plural(nd, 'folder') + ' • ' + plural(nf, 'file');
+  document.getElementById('stat').textContent = summaryText;
+  document.getElementById('subStat').textContent = (segs.length ? '/' + segs.join('/') : 'Root Storage') + ' • ' + summaryText;
+
+  fetch(apiUrl('git_status?path=' + encodeURIComponent(p))).then(function (r) { return r.json(); }).then(function (data) {
+    if (!data || !data.is_git) return;
+    var pill = document.getElementById('gitRepoPill');
+    document.getElementById('gitBranchName').textContent = data.branch || 'git';
+    pill.classList.add('show');
+    var st = data.statuses || {};
+    Object.keys(st).forEach(function (fname) {
+      var tr = rowMapByName[fname];
+      if (!tr) return;
+      var nmSpan = tr.querySelector('.nm');
+      if (!nmSpan || nmSpan.querySelector('.git-dot')) return;
+      var dot = document.createElement('span');
+      var isMod = st[fname] === 'modified';
+      dot.className = 'git-dot ' + (isMod ? 'mod' : 'add');
+      dot.title = isMod ? 'Git: Modified' : 'Git: Added / Untracked';
+      nmSpan.appendChild(dot);
+    });
+  }).catch(function () {});
+
+  // 5. iOS Mini Background Audio Player
+  var bgAudioBar = document.getElementById('bgAudioBar'), bgAudioEl = document.getElementById('bgAudioEl');
+  var bgAudioTitle = document.getElementById('bgAudioTitle'), bgAudioSpeedLabel = document.getElementById('bgAudioSpeedLabel');
+  var btnBgPlayPause = document.getElementById('btnBgPlayPause'), bgPlayPauseSvg = document.getElementById('bgPlayPauseSvg'), btnBgSpeed = document.getElementById('btnBgSpeed');
+  var PAUSE_SVG = '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>';
+  var PLAY_SVG = '<polygon points="6 4 20 12 6 20 6 4"/>';
+  var SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0], curSpeedIdx = 2;
+
+  function startBackgroundAudio(title, src, currentTime, rate) {
+    bgAudioTitle.textContent = title;
+    bgAudioEl.src = src;
+    bgAudioEl.currentTime = currentTime || 0;
+    bgAudioEl.playbackRate = rate || 1.0;
+    bgAudioSpeedLabel.textContent = (rate || 1.0) + 'x';
+    btnBgSpeed.textContent = (rate || 1.0) + 'x';
+    bgAudioBar.classList.add('show');
+    bgAudioEl.play().catch(function () {});
+    bgPlayPauseSvg.innerHTML = PAUSE_SVG;
+    showToast('Playing in background');
+  }
+  btnBgPlayPause.addEventListener('click', function () {
+    if (bgAudioEl.paused) { bgAudioEl.play(); bgPlayPauseSvg.innerHTML = PAUSE_SVG; }
+    else { bgAudioEl.pause(); bgPlayPauseSvg.innerHTML = PLAY_SVG; }
+  });
+  btnBgSpeed.addEventListener('click', function () {
+    curSpeedIdx = (curSpeedIdx + 1) % SPEEDS.length;
+    var sp = SPEEDS[curSpeedIdx];
+    bgAudioEl.playbackRate = sp;
+    bgAudioSpeedLabel.textContent = sp + 'x';
+    btnBgSpeed.textContent = sp + 'x';
+  });
+  document.getElementById('btnBgStop').addEventListener('click', function () {
+    bgAudioEl.pause(); bgAudioEl.src = ''; bgAudioBar.classList.remove('show');
+  });
+
+  // 6. Trình sửa Code (Ace IDE + Unsaved Changes Guard + YAML Linter)
+  var editorModal = document.getElementById('editorModal'), edTitle = document.getElementById('edTitle'), edLang = document.getElementById('edLang');
+  var dirtyDot = document.getElementById('dirtyDot');
+  var aceContainer = document.getElementById('aceContainer'), edArea = document.getElementById('edArea'), mdView = document.getElementById('mdView');
+  var edPreview = document.getElementById('edPreview'), edSave = document.getElementById('edSave'), edMdToggle = document.getElementById('edMdToggle');
+  var edSubbar = document.getElementById('edSubbar'), edStatus = document.getElementById('edStatus'), yamlAlert = document.getElementById('yamlAlert');
+  var minimapWrap = document.getElementById('minimapWrap'), minimapCanvas = document.getElementById('minimapCanvas'), minimapVp = document.getElementById('minimapVp');
+  var aceEditor = null, currentEditUrl = '', currentExt = '', isMarkdownFile = false, mdPreviewActive = false, minimapEnabled = true;
+  var originalContent = '', isDirty = false, isLoadingContent = false;
+  var editorFontSize = parseInt(localStorage.getItem('wpro_fsize') || '14', 10);
+
+  function updateDirtyState() {
+    if (isLoadingContent || !currentEditUrl) return;
+    var cur = getEditorContent();
+    isDirty = (cur !== originalContent);
+    dirtyDot.classList.toggle('show', isDirty);
+    edSave.classList.toggle('unsaved', isDirty);
+    var baseExt = (currentExt || 'TEXT').toUpperCase() + (isMarkdownFile ? ' • MARKDOWN' : '');
+    edLang.textContent = baseExt + (isDirty ? ' • UNSAVED' : '');
+  }
+
+  window.addEventListener('beforeunload', function (e) {
+    if (editorModal.classList.contains('show') && isDirty) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
+  function renderMinimap() {
+    if (!aceEditor || !minimapEnabled || !minimapWrap.classList.contains('show')) return;
+    var rect = minimapWrap.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    minimapCanvas.width = 58;
+    minimapCanvas.height = rect.height;
+    var ctx = minimapCanvas.getContext('2d');
+    ctx.clearRect(0, 0, 58, rect.height);
+    var lines = aceEditor.session.getDocument().getAllLines();
+    var total = Math.max(lines.length, 1);
+    var step = Math.max(2, Math.min(4, rect.height / total));
+    for (var i = 0; i < lines.length; i++) {
+      var y = i * step;
+      if (y > rect.height) break;
+      var ln = lines[i];
+      if (!ln || !ln.trim()) continue;
+      var indent = ln.search(/\S|$/);
+      var len = Math.min(48, Math.ceil((ln.length - indent) * 0.65));
+      var trimmed = ln.trim();
+      ctx.fillStyle = trimmed.indexOf('#') === 0 ? '#484f58' : (trimmed.indexOf(':') !== -1 ? '#58a6ff' : '#8b949e');
+      ctx.fillRect(Math.min(18, 4 + indent * 1.5), y, Math.max(4, len), Math.max(1.2, step - 0.8));
+    }
+    var firstVis = aceEditor.getFirstVisibleRow();
+    var lastVis = aceEditor.getLastVisibleRow();
+    var vpTop = Math.min(rect.height - 20, (firstVis / total) * rect.height);
+    var vpH = Math.max(20, ((lastVis - firstVis + 1) / total) * rect.height);
+    minimapVp.style.top = vpTop + 'px';
+    minimapVp.style.height = Math.min(rect.height, vpH) + 'px';
+  }
+
+  minimapWrap.addEventListener('mousedown', function (e) {
+    if (!aceEditor) return;
+    var jump = function (ev) {
+      var r = minimapWrap.getBoundingClientRect();
+      var ratio = Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height));
+      var targetRow = Math.floor(ratio * aceEditor.session.getLength());
+      aceEditor.scrollToLine(targetRow, true, true, function () {});
+      renderMinimap();
+    };
+    jump(e);
+    var move = function (ev) { jump(ev); };
+    var upEv = function () { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', upEv); };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', upEv);
+  });
+
+  function validateYamlContent() {
+    if (!/^(yaml|yml)$/i.test(currentExt) || !window.jsyaml) {
+      yamlAlert.classList.remove('show');
+      if (aceEditor) aceEditor.session.clearAnnotations();
+      return true;
+    }
+    try {
+      var src = getEditorContent().replace(/![a-zA-Z0-9_]+\s+/g, '');
+      jsyaml.loadAll(src);
+      yamlAlert.className = 'yaml-alert show yaml-ok';
+      yamlAlert.textContent = '✓ Valid Home Assistant YAML syntax';
+      if (aceEditor) aceEditor.session.clearAnnotations();
+      return true;
+    } catch (err) {
+      var errLine = (err.mark && typeof err.mark.line === 'number') ? err.mark.line : 0;
+      yamlAlert.className = 'yaml-alert show';
+      yamlAlert.textContent = 'YAML Error (Line ' + (errLine + 1) + '): ' + err.reason;
+      if (aceEditor) {
+        aceEditor.session.setAnnotations([{
+          row: errLine,
+          column: (err.mark && err.mark.column) || 0,
+          text: 'Home Assistant YAML: ' + err.reason,
+          type: 'error'
+        }]);
+      }
+      return false;
+    }
+  }
+
+  function initAce() {
+    if (aceEditor || !window.ace) return;
+    ace.config.set('basePath', 'https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/');
+    aceEditor = ace.edit('aceContainer');
+    aceEditor.setTheme('ace/theme/one_dark');
+    aceEditor.setOptions({
+      fontSize: editorFontSize + 'px',
+      fontFamily: '"SF Mono", Menlo, Monaco, Consolas, monospace',
+      showPrintMargin: false,
+      tabSize: 2,
+      useSoftTabs: true,
+      wrap: false,
+      scrollPastEnd: 0.3,
+      enableMultiselect: true,
+      useWorker: false
+    });
+    aceEditor.session.on('change', function () {
+      validateYamlContent();
+      updateDirtyState();
+      renderMinimap();
+    });
+    aceEditor.session.on('changeScrollTop', function () { renderMinimap(); });
+    aceEditor.selection.on('changeCursor', function () {
+      var ranges = aceEditor.selection.getAllRanges ? aceEditor.selection.getAllRanges() : [];
+      var curPos = aceEditor.getCursorPosition();
+      edStatus.textContent = (ranges.length > 1 ? ranges.length + ' cursors • ' : '') + 'Ln ' + (curPos.row + 1) + ', Col ' + (curPos.column + 1);
+    });
+    aceEditor.commands.addCommand({ name: 'saveFile', bindKey: { win: 'Ctrl-S', mac: 'Command-S' }, exec: function () { promptSaveCurrentFile(); } });
+  }
+
+  edArea.addEventListener('input', function () {
+    validateYamlContent();
+    updateDirtyState();
+  });
+
+  function forceAceLayout() {
+    if (!aceEditor) return;
+    requestAnimationFrame(function () {
+      aceEditor.resize(true);
+      aceEditor.renderer.updateFull(true);
+      renderMinimap();
+    });
+    setTimeout(function () {
+      if (aceEditor) {
+        aceEditor.resize(true);
+        aceEditor.renderer.updateFull(true);
+        renderMinimap();
+      }
+    }, 120);
+  }
+  window.addEventListener('resize', forceAceLayout);
+
+  function getEditorContent() { return aceEditor ? aceEditor.getValue() : edArea.value; }
+  function setEditorContent(val, ext) {
+    isLoadingContent = true;
+    initAce();
+    if (aceEditor) {
+      aceContainer.style.display = 'block'; edArea.style.display = 'none';
+      minimapWrap.classList.toggle('show', minimapEnabled);
+      aceEditor.session.setOption('useWorker', false);
+      aceEditor.session.setMode('ace/mode/' + (ACE_MODES[ext] || 'yaml'));
+      aceEditor.session.setValue(val);
+      aceEditor.clearSelection();
+      aceEditor.moveCursorTo(0, 0);
+      aceEditor.session.getUndoManager().reset();
+      forceAceLayout();
+    } else {
+      aceContainer.style.display = 'none'; minimapWrap.classList.remove('show'); edArea.style.display = 'block'; edArea.value = val;
+    }
+    originalContent = val;
+    isDirty = false;
+    isLoadingContent = false;
+    dirtyDot.classList.remove('show');
+    edSave.classList.remove('unsaved');
+    validateYamlContent();
+  }
+
+  function toggleMarkdownPreview(forceState) {
+    mdPreviewActive = typeof forceState === 'boolean' ? forceState : !mdPreviewActive;
+    edMdToggle.classList.toggle('active', mdPreviewActive);
+    edMdToggle.textContent = mdPreviewActive ? 'Edit Code' : 'Preview';
+    if (mdPreviewActive) {
+      var rawMd = getEditorContent();
+      mdView.innerHTML = window.marked ? marked.parse(rawMd) : '<pre>' + esc(rawMd) + '</pre>';
+      mdView.style.display = 'block'; aceContainer.style.display = 'none'; minimapWrap.classList.remove('show'); edArea.style.display = 'none';
+    } else {
+      mdView.style.display = 'none';
+      if (aceEditor) { aceContainer.style.display = 'block'; minimapWrap.classList.toggle('show', minimapEnabled); forceAceLayout(); }
+      else edArea.style.display = 'block';
+    }
+  }
+  edMdToggle.addEventListener('click', function () { toggleMarkdownPreview(); });
+
+  function openSmartViewer(item) {
+    var label = item.name, href = item.href;
+    var extMatch = /\.([a-z0-9]+)$/i.exec(label), ext = extMatch ? extMatch[1].toLowerCase() : '';
+    if (IMG_EXT.test(ext)) { openMediaModal(label, href, 'img', ext); return; }
+    if (VID_EXT.test(ext)) { openMediaModal(label, href, 'vid', ext); return; }
+    if (AUD_EXT.test(ext)) { openMediaModal(label, href, 'aud', ext); return; }
+    if (ext === 'pdf') { openPdfJsModal(label, href); return; }
+    if (ARCH_EXT.test(ext)) { openArchiveInspector(label, href, ext); return; }
+    if (BIN_HEX_EXT.test(ext)) { openHexViewer(label, href); return; }
+    if (EDITABLE_EXT.test(ext) || EDITABLE_EXT.test(label) || !ext) openCodeEditor(label, href, ext || 'yaml');
+    else openHexViewer(label, href);
+  }
+
+  function openPdfJsModal(label, href) {
+    currentEditUrl = ''; isDirty = false; dirtyDot.classList.remove('show');
+    edTitle.textContent = label; edLang.textContent = 'PDF.JS VIEWER';
+    editorModal.classList.add('show');
+    aceContainer.style.display = 'none'; minimapWrap.classList.remove('show'); edArea.style.display = 'none'; mdView.style.display = 'none';
+    edSubbar.style.display = 'none'; edSave.style.display = 'none'; edMdToggle.style.display = 'none'; yamlAlert.classList.remove('show');
+    edPreview.style.display = 'flex';
+    var fullUrl = buildWebdavUrl(href);
+    edPreview.innerHTML =
+      '<div class="pdf-toolbar">' +
+        '<button id="pdfPrev" class="ed-chip" type="button">◀ Prev</button>' +
+        '<span id="pdfPageInfo">Loading PDF...</span>' +
+        '<button id="pdfNext" class="ed-chip" type="button">Next ▶</button>' +
+        '<button id="pdfZoomOut" class="ed-chip" type="button">−</button>' +
+        '<button id="pdfZoomIn" class="ed-chip" type="button">＋</button>' +
+      '</div>' +
+      '<div style="overflow:auto;max-width:100%;max-height:78vh;display:grid;place-items:center"><canvas id="pdfCanvas"></canvas></div>';
+
+    if (!window.pdfjsLib) {
+      edPreview.innerHTML = '<iframe src="' + fullUrl + '" style="width:100%;height:82vh;border:0;border-radius:8px;background:#fff"></iframe>';
+      return;
+    }
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    var pdfDoc = null, pageNum = 1, scale = 1.35;
+    var canvas = document.getElementById('pdfCanvas'), ctx = canvas.getContext('2d'), info = document.getElementById('pdfPageInfo');
+
+    function renderPage(num) {
+      pdfDoc.getPage(num).then(function (page) {
+        var viewport = page.getViewport({ scale: scale });
+        canvas.height = viewport.height; canvas.width = viewport.width;
+        page.render({ canvasContext: ctx, viewport: viewport });
+        info.textContent = 'Page ' + num + ' / ' + pdfDoc.numPages + ' (' + Math.round(scale * 100) + '%)';
+      });
+    }
+    pdfjsLib.getDocument(fullUrl).promise.then(function (doc) {
+      pdfDoc = doc; renderPage(pageNum);
+    }).catch(function () {
+      edPreview.innerHTML = '<iframe src="' + fullUrl + '" style="width:100%;height:82vh;border:0;border-radius:8px;background:#fff"></iframe>';
+    });
+
+    document.getElementById('pdfPrev').addEventListener('click', function () { if (pdfDoc && pageNum > 1) { pageNum--; renderPage(pageNum); } });
+    document.getElementById('pdfNext').addEventListener('click', function () { if (pdfDoc && pageNum < pdfDoc.numPages) { pageNum++; renderPage(pageNum); } });
+    document.getElementById('pdfZoomIn').addEventListener('click', function () { if (pdfDoc) { scale = Math.min(3.0, scale + 0.25); renderPage(pageNum); } });
+    document.getElementById('pdfZoomOut').addEventListener('click', function () { if (pdfDoc) { scale = Math.max(0.6, scale - 0.25); renderPage(pageNum); } });
+  }
+
+  function openHexViewer(label, href) {
+    currentEditUrl = ''; isDirty = false; dirtyDot.classList.remove('show');
+    edTitle.textContent = label; edLang.textContent = 'HEX / BINARY INSPECTOR';
+    editorModal.classList.add('show');
+    aceContainer.style.display = 'none'; minimapWrap.classList.remove('show'); edArea.style.display = 'none'; mdView.style.display = 'none';
+    edSubbar.style.display = 'none'; edSave.style.display = 'none'; edMdToggle.style.display = 'none'; yamlAlert.classList.remove('show');
+    edPreview.style.display = 'flex';
+    edPreview.innerHTML = '<div style="color:#8b949e">Reading binary stream...</div>';
+
+    var fullUrl = buildWebdavUrl(href);
+    fetch(fullUrl, { headers: { 'Range': 'bytes=0-16383' }, credentials: 'same-origin' }).then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
+      var bytes = new Uint8Array(buf), maxLen = Math.min(bytes.length, 8192), rowsHtml = [];
+      for (var offset = 0; offset < maxLen; offset += 16) {
+        var offHex = ('00000000' + offset.toString(16)).slice(-8).toUpperCase();
+        var hexPart = [], asciiPart = '';
+        for (var i = 0; i < 16; i++) {
+          if (offset + i < maxLen) {
+            var b = bytes[offset + i];
+            hexPart.push(('0' + b.toString(16)).slice(-2).toUpperCase());
+            asciiPart += (b >= 32 && b <= 126) ? esc(String.fromCharCode(b)) : '·';
+          } else {
+            hexPart.push('  ');
+            asciiPart += ' ';
+          }
+          if (i === 7) hexPart.push('');
+        }
+        rowsHtml.push('<div class="hex-row"><span class="hex-off">' + offHex + '</span><span class="hex-bytes">' + hexPart.join(' ') + '</span><span class="hex-ascii">' + asciiPart + '</span></div>');
+      }
+      var headNote = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:#8b949e;font-size:12px;flex-wrap:wrap;gap:8px"><span>Showing first ' + fmtBytes(maxLen) + ' (Total: ' + fmtBytes(bytes.length) + ')</span><button id="btnForceTextEdit" class="ed-chip" type="button">Force Open in Text Editor</button></div>';
+      edPreview.innerHTML = '<div class="hex-wrap">' + headNote + (rowsHtml.join('') || '<div>Empty file (0 bytes)</div>') + '</div>';
+      var forceBtn = document.getElementById('btnForceTextEdit');
+      if (forceBtn) forceBtn.addEventListener('click', function () { openCodeEditor(label, href, 'txt'); });
+    }).catch(function (e) {
+      edPreview.innerHTML = '<div style="color:var(--red)">Failed to read binary file: ' + esc(e.message) + '</div>';
+    });
+  }
+
+  function openArchiveInspector(label, href, ext) {
+    currentEditUrl = ''; isDirty = false; dirtyDot.classList.remove('show');
+    edTitle.textContent = label; edLang.textContent = ext.toUpperCase() + ' ARCHIVE INSPECTOR';
+    editorModal.classList.add('show');
+    aceContainer.style.display = 'none'; minimapWrap.classList.remove('show'); edArea.style.display = 'none'; mdView.style.display = 'none';
+    edSubbar.style.display = 'none'; edSave.style.display = 'none'; edMdToggle.style.display = 'none'; yamlAlert.classList.remove('show');
+    edPreview.style.display = 'flex'; edPreview.innerHTML = '<div style="color:#8b949e">Reading archive contents...</div>';
+
+    fetch(buildWebdavUrl(href), { credentials: 'same-origin' }).then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
+      if (ext === 'zip' && window.JSZip) {
+        return JSZip.loadAsync(buf).then(function (zip) {
+          var items = [];
+          zip.forEach(function (relPath, file) { items.push('<div class="arch-item"><span>' + esc(relPath) + '</span><span>' + (file.dir ? 'DIR' : '') + '</span></div>'); });
+          edPreview.innerHTML = '<div class="arch-list">' + (items.join('') || '<div class="arch-item">Empty archive</div>') + '</div>';
+        });
+      } else {
+        var view = new Uint8Array(buf), pos = 0, items = [];
+        while (pos + 512 <= view.length && items.length < 300) {
+          var name = '';
+          for (var i = 0; i < 100 && view[pos + i] !== 0; i++) name += String.fromCharCode(view[pos + i]);
+          if (!name) break;
+          var sizeOct = '';
+          for (var j = 124; j < 136 && view[pos + j] !== 0 && view[pos + j] !== 32; j++) sizeOct += String.fromCharCode(view[pos + j]);
+          var size = parseInt(sizeOct, 8) || 0;
+          items.push('<div class="arch-item"><span>' + esc(name) + '</span><span>' + (size ? (size / 1024).toFixed(1) + ' KB' : '') + '</span></div>');
+          pos += 512 + Math.ceil(size / 512) * 512;
+        }
+        edPreview.innerHTML = '<div class="arch-list">' + (items.join('') || '<div class="arch-item">Compressed TAR archive — Download to extract</div>') + '</div>';
+      }
+    }).catch(function (e) { edPreview.innerHTML = '<div style="color:var(--red)">Could not inspect archive: ' + esc(e.message) + '</div>'; });
+  }
+
+  function openMediaModal(label, href, type, ext) {
+    currentEditUrl = ''; isDirty = false; dirtyDot.classList.remove('show');
+    edTitle.textContent = label; edLang.textContent = ext.toUpperCase() + ' MEDIA PLAYER';
+    editorModal.classList.add('show');
+    aceContainer.style.display = 'none'; minimapWrap.classList.remove('show'); edArea.style.display = 'none'; mdView.style.display = 'none';
+    edSubbar.style.display = 'none'; edSave.style.display = 'none'; edMdToggle.style.display = 'none'; yamlAlert.classList.remove('show');
+    edPreview.style.display = 'flex';
+    var fullUrl = buildWebdavUrl(href);
+    if (type === 'img') {
+      edPreview.innerHTML = '<img src="' + fullUrl + '" alt="' + esc(label) + '">';
+      return;
+    }
+    var mediaBox = type === 'vid'
+      ? '<video id="proMediaEl" src="' + fullUrl + '" controls autoplay playsinline></video>'
+      : '<div class="ios-player-card">' +
+          '<div class="ios-art-big"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>' +
+          '<div class="ios-track-title">' + esc(label) + '</div>' +
+          '<audio id="proMediaEl" src="' + fullUrl + '" controls autoplay></audio>' +
+        '</div>';
+
+    var speedBtns = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(function (s) {
+      return '<button class="ed-chip spd-btn' + (s === 1.0 ? ' active' : '') + '" data-spd="' + s + '" type="button">' + s + 'x</button>';
+    }).join('');
+    var ctrlBar =
+      '<div class="media-ctrl-bar">' +
+        '<div class="media-row">' + speedBtns + '</div>' +
+        '<div class="media-row">' +
+          '<button id="medBack10" class="ed-chip" type="button">↺ -10s</button>' +
+          '<button id="medFwd10" class="ed-chip" type="button">↻ +10s</button>' +
+          '<button id="medBgPlay" class="ed-chip" style="border-color:var(--blue);color:#58a6ff" type="button">Play in Background</button>' +
+        '</div>' +
+      '</div>';
+    edPreview.innerHTML = mediaBox + ctrlBar;
+
+    var mediaEl = document.getElementById('proMediaEl');
+    document.getElementById('medBack10').addEventListener('click', function () { mediaEl.currentTime = Math.max(0, mediaEl.currentTime - 10); });
+    document.getElementById('medFwd10').addEventListener('click', function () { mediaEl.currentTime = Math.min(mediaEl.duration || 99999, mediaEl.currentTime + 10); });
+    [].slice.call(edPreview.querySelectorAll('.spd-btn')).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var sp = parseFloat(this.getAttribute('data-spd'));
+        mediaEl.playbackRate = sp;
+        [].slice.call(edPreview.querySelectorAll('.spd-btn')).forEach(function (x) { x.classList.remove('active'); });
+        this.classList.add('active');
+      });
+    });
+    document.getElementById('medBgPlay').addEventListener('click', function () {
+      var curT = mediaEl.currentTime || 0, curR = mediaEl.playbackRate || 1.0;
+      mediaEl.pause();
+      editorModal.classList.remove('show', 'zen');
+      edPreview.innerHTML = '';
+      startBackgroundAudio(label, fullUrl, curT, curR);
+    });
+  }
+
+  function openCodeEditor(label, href, ext, isBrandNewFile) {
+    currentEditUrl = buildWebdavUrl(href);
+    currentExt = ext;
+    edTitle.textContent = label;
+    isMarkdownFile = /^(md|markdown)$/i.test(ext);
+    edLang.textContent = (ext || 'TEXT').toUpperCase() + (isMarkdownFile ? ' • MARKDOWN' : '');
+    editorModal.classList.add('show');
+    edPreview.style.display = 'none'; edPreview.innerHTML = ''; mdView.style.display = 'none';
+    edSubbar.style.display = 'flex'; edSave.style.display = 'inline-flex';
+    edMdToggle.style.display = isMarkdownFile ? 'inline-flex' : 'none';
+    mdPreviewActive = false; edMdToggle.classList.remove('active'); edMdToggle.textContent = 'Preview';
+    edStatus.textContent = 'Loading...';
+    edSave.disabled = true;
+
+    if (isBrandNewFile) {
+      edSave.disabled = false;
+      setEditorContent('', ext);
+      edStatus.textContent = 'UTF-8 • New File';
+      return;
+    }
+
+    var sep = currentEditUrl.indexOf('?') === -1 ? '?' : '&';
+    fetch(currentEditUrl + sep + '_ts=' + Date.now(), {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: { 'Accept': 'text/plain, */*' }
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    }).then(function (txt) {
+      edSave.disabled = false;
+      setEditorContent(txt, ext);
+      var lineCount = txt ? txt.split('\n').length : 1;
+      edStatus.textContent = 'UTF-8 • ' + lineCount + (lineCount === 1 ? ' line' : ' lines') + (txt === '' ? ' (Empty file)' : '');
+      if (isMarkdownFile && txt.trim().length > 0) toggleMarkdownPreview(true);
+    }).catch(function (err) {
+      edSave.disabled = true;
+      edStatus.textContent = 'Load Error';
+      showIosDialog({
+        type: 'danger',
+        title: 'Could Not Load File',
+        message: 'Failed to load <b>' + esc(label) + '</b> (' + esc(err.message) + '). Saving is disabled to protect your existing file.',
+        buttons: [
+          { label: 'Retry Loading', role: 'primary', onClick: function () { openCodeEditor(label, href, ext, false); } },
+          { label: 'Close Editor', role: 'cancel', onClick: function () { forceCloseEditor(); } }
+        ]
+      });
+    });
+  }
+
+  function executeSaveFile(onSuccessCallback) {
+    if (!currentEditUrl) return;
+    edSave.disabled = true;
+    edStatus.textContent = 'Saving...';
+    var contentToSave = getEditorContent();
+
+    fetch(currentEditUrl, {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: contentToSave
+    }).then(function (r) {
+      edSave.disabled = false;
+      if (r.ok || r.status === 201 || r.status === 204) {
+        originalContent = contentToSave;
+        isDirty = false;
+        dirtyDot.classList.remove('show');
+        edSave.classList.remove('unsaved');
+        edLang.textContent = (currentExt || 'TEXT').toUpperCase() + (isMarkdownFile ? ' • MARKDOWN' : '');
+        edStatus.textContent = 'Saved ' + new Date().toLocaleTimeString();
+        showToast('✓ Saved ' + edTitle.textContent);
+        if (isMarkdownFile && mdPreviewActive) toggleMarkdownPreview(true);
+        if (onSuccessCallback) onSuccessCallback();
+      } else {
+        throw new Error('HTTP ' + r.status);
+      }
+    }).catch(function (err) {
+      edSave.disabled = false;
+      showIosDialog({
+        type: 'danger',
+        title: 'Save Failed',
+        message: 'Could not save <b>' + esc(edTitle.textContent) + '</b>: ' + esc(err.message),
+        buttons: [{ label: 'OK', role: 'primary' }]
+      });
+    });
+  }
+
+  function promptSaveCurrentFile(onSuccessCallback) {
+    if (!currentEditUrl) return;
+    var yamlOk = validateYamlContent();
+    if (!yamlOk) {
+      showIosDialog({
+        type: 'warn',
+        title: 'YAML Syntax Error',
+        message: 'This file contains a YAML syntax error. Saving now may prevent Home Assistant from reloading configuration. Save anyway?',
+        buttons: [
+          { label: 'Save Anyway', role: 'danger', onClick: function () { executeSaveFile(onSuccessCallback); } },
+          { label: 'Cancel & Fix', role: 'cancel' }
+        ]
+      });
+      return;
+    }
+    showIosDialog({
+      type: 'info',
+      title: 'Save Changes?',
+      message: 'Do you want to save your changes to <b>' + esc(edTitle.textContent) + '</b>?',
+      buttons: [
+        { label: 'Save File', role: 'primary', onClick: function () { executeSaveFile(onSuccessCallback); } },
+        { label: 'Cancel', role: 'cancel' }
+      ]
+    });
+  }
+
+  function forceCloseEditor() {
+    isDirty = false;
+    currentEditUrl = '';
+    dirtyDot.classList.remove('show');
+    edSave.classList.remove('unsaved');
+    editorModal.classList.remove('show', 'zen');
+    edPreview.innerHTML = '';
+    yamlAlert.classList.remove('show');
+  }
+
+  edSave.addEventListener('click', function () { promptSaveCurrentFile(); });
+  document.getElementById('edClose').addEventListener('click', function () {
+    if (currentEditUrl && isDirty) {
+      showIosDialog({
+        type: 'warn',
+        title: 'Unsaved Changes',
+        message: 'You have unsaved edits in <b>' + esc(edTitle.textContent) + '</b>. What would you like to do?',
+        buttons: [
+          { label: 'Save & Close', role: 'primary', onClick: function () { executeSaveFile(forceCloseEditor); } },
+          { label: 'Discard Changes', role: 'danger', onClick: function () { forceCloseEditor(); } },
+          { label: 'Keep Editing', role: 'cancel' }
+        ]
+      });
+    } else {
+      forceCloseEditor();
+    }
+  });
+
+  document.getElementById('edUndo').addEventListener('click', function () { if (aceEditor) aceEditor.undo(); });
+  document.getElementById('edRedo').addEventListener('click', function () { if (aceEditor) aceEditor.redo(); });
+  document.getElementById('edFind').addEventListener('click', function () { if (aceEditor) aceEditor.execCommand('find'); });
+  document.getElementById('edMultiCursor').addEventListener('click', function () {
+    if (!aceEditor) return;
+    aceEditor.execCommand('selectMoreAfter');
+    showToast('Multi-Cursor: Hold Alt/Option + Click or tap ✚ Cursor');
+  });
+  document.getElementById('edTab').addEventListener('click', function () { if (aceEditor) aceEditor.indent(); });
+  document.getElementById('edComment').addEventListener('click', function () { if (aceEditor) aceEditor.toggleCommentLines(); });
+  document.getElementById('edFontUp').addEventListener('click', function () {
+    editorFontSize = Math.min(24, editorFontSize + 1);
+    localStorage.setItem('wpro_fsize', editorFontSize);
+    if (aceEditor) aceEditor.setFontSize(editorFontSize + 'px');
+    showToast('Font size: ' + editorFontSize + 'px');
+  });
+  document.getElementById('edFontDown').addEventListener('click', function () {
+    editorFontSize = Math.max(10, editorFontSize - 1);
+    localStorage.setItem('wpro_fsize', editorFontSize);
+    if (aceEditor) aceEditor.setFontSize(editorFontSize + 'px');
+    showToast('Font size: ' + editorFontSize + 'px');
+  });
+  document.getElementById('edWrap').addEventListener('click', function () {
+    if (aceEditor) { var w = aceEditor.session.getUseWrapMode(); aceEditor.session.setUseWrapMode(!w); showToast(!w ? 'Word Wrap: On' : 'Word Wrap: Off'); }
+  });
+  document.getElementById('edMinimapToggle').addEventListener('click', function () {
+    minimapEnabled = !minimapEnabled;
+    this.classList.toggle('active', minimapEnabled);
+    minimapWrap.classList.toggle('show', minimapEnabled && !mdPreviewActive);
+    forceAceLayout();
+  });
+  document.getElementById('edZen').addEventListener('click', function () {
+    editorModal.classList.toggle('zen');
+    forceAceLayout();
+  });
+
+  // 7. System Operations, Multi-Protocol Connect Hub & Security Suite Modal
+  var suiteModal = document.getElementById('suiteModal'), suiteTitle = document.getElementById('suiteTitle'), suiteBody = document.getElementById('suiteBody');
+  var IC_TERM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>';
+  var IC_DISK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>';
+  var IC_SNAP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>';
+  var IC_GLOBE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+  var IC_SHIELD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>';
+  var IC_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>';
+
+  function openSuiteModal(titleHtml, htmlContent) {
+    suiteTitle.innerHTML = titleHtml;
+    suiteBody.innerHTML = htmlContent;
+    suiteModal.classList.add('show');
+  }
+  document.getElementById('suiteClose').addEventListener('click', function () { suiteModal.classList.remove('show'); suiteBody.innerHTML = ''; });
+  suiteModal.addEventListener('click', function (e) { if (e.target === suiteModal) { suiteModal.classList.remove('show'); suiteBody.innerHTML = ''; } });
+
+  // 7A. Web Terminal
+  document.getElementById('btnSysTerm').addEventListener('click', function () {
+    openSuiteModal(IC_TERM + '<span>Web Terminal</span>',
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">' +
+        '<span style="font-size:12.5px;color:var(--muted)">Path: <b style="color:#fff">' + esc(p) + '</b></span>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          '<button id="btnQuickDf" class="ed-chip" type="button">df -h</button>' +
+          '<button id="btnQuickLs" class="ed-chip" type="button">ls -la</button>' +
+          '<button id="btnQuickGit" class="ed-chip" type="button">git status</button>' +
+          '<button id="btnQuickGitPull" class="ed-chip" type="button">git pull</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="term-frame">' +
+        '<div id="xtermBox" style="width:100%;height:310px;padding:8px"></div>' +
+        '<form id="termCmdForm" style="display:flex;border-top:1px solid #30363d;background:#0d1117">' +
+          '<span style="padding:9px 10px;color:#30d158;font-family:monospace;font-weight:700">$</span>' +
+          '<input id="termCmdInput" type="text" placeholder="Enter command (e.g. df -h, git pull)..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:0;background:transparent;border:0;color:#fff;font-family:monospace;font-size:14px;outline:none">' +
+          '<button type="submit" class="ed-btn save" style="border-radius:0;height:38px">Run</button>' +
+        '</form>' +
+      '</div>'
+    );
+
+    var box = document.getElementById('xtermBox');
+    var term = window.Terminal ? new Terminal({ cursorBlink: true, fontSize: 12.5, rows: 17, theme: { background: '#000000' } }) : null;
+    if (term) {
+      term.open(box);
+      term.writeln('\x1b[1;36mOmniDrive Pro System Shell\x1b[0m');
+      term.writeln('Working directory: \x1b[1;33m' + p + '\x1b[0m');
+    } else {
+      box.style.cssText = 'height:310px;overflow:auto;padding:10px;font-family:monospace;white-space:pre-wrap;color:#e6edf3;font-size:12.5px';
+      box.textContent = 'OmniDrive Pro System Shell\nWorking directory: ' + p + '\n';
+    }
+
+    function runCmd(cmd) {
+      if (!cmd) return;
+      if (term) term.writeln('\r\n\x1b[1;32mroot@omnidrive:' + p + '# \x1b[0m' + cmd);
+      else box.textContent += '\nroot@omnidrive:' + p + '# ' + cmd + '\n';
+      fetch(apiUrl('exec'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd: cmd, cwd: p }) })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          var out = (res.output || '(done)\n').replace(/\r?\n/g, '\r\n');
+          if (term) term.write(out);
+          else { box.textContent += res.output || ''; box.scrollTop = box.scrollHeight; }
+        });
+    }
+    document.getElementById('termCmdForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var inp = document.getElementById('termCmdInput');
+      var c = inp.value.trim(); inp.value = '';
+      runCmd(c);
+    });
+    document.getElementById('btnQuickDf').addEventListener('click', function () { runCmd('df -h'); });
+    document.getElementById('btnQuickLs').addEventListener('click', function () { runCmd('ls -la'); });
+    document.getElementById('btnQuickGit').addEventListener('click', function () { runCmd('git status'); });
+    document.getElementById('btnQuickGitPull').addEventListener('click', function () { runCmd('git pull'); });
+  });
+
+  // 7B. Disk Usage Analytics
+  document.getElementById('btnSysDisk').addEventListener('click', function () {
+    openSuiteModal(IC_DISK + '<span>Storage Analytics</span>', '<div style="text-align:center;padding:30px;color:var(--muted)">Calculating folder sizes...</div>');
+    fetch(apiUrl('disk')).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.error) throw new Error(d.error);
+      var palette = ['#0a84ff', '#30d158', '#ff9f0a', '#bf5af2', '#ff453a', '#5ac8fa', '#ffd60a', '#64d2ff'];
+      var folders = (d.folders || []).sort(function (a, b) { return b.bytes - a.bytes; });
+      var R = 70, C = 2 * Math.PI * R, offset = 0;
+      var circles = '', legend = '';
+      var denom = Math.max(d.total || 1, 1);
+
+      folders.forEach(function (f, idx) {
+        var col = palette[idx % palette.length];
+        var frac = Math.max(0, Math.min(1, f.bytes / denom));
+        var dash = frac * C;
+        circles += '<circle r="' + R + '" cx="90" cy="90" fill="transparent" stroke="' + col + '" stroke-width="22" stroke-dasharray="' + dash.toFixed(2) + ' ' + C.toFixed(2) + '" stroke-dashoffset="' + (-offset).toFixed(2) + '" transform="rotate(-90 90 90)"/>';
+        offset += dash;
+        legend += '<div class="legend-item"><div class="legend-left"><span class="legend-dot" style="background:' + col + '"></span><b>/' + esc(f.name) + '</b></div><span>' + fmtBytes(f.bytes) + '</span></div>';
+      });
+
+      var usedPct = Math.round((d.used / denom) * 100);
+      suiteBody.innerHTML =
+        '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:rgba(38,44,58,.52);padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.09);margin-bottom:16px;gap:8px;text-align:center">' +
+          '<div><span style="color:var(--muted);font-size:11px;display:block">TOTAL</span><b style="font-size:15px">' + fmtBytes(d.total) + '</b></div>' +
+          '<div><span style="color:var(--muted);font-size:11px;display:block">USED (' + usedPct + '%)</span><b style="font-size:15px;color:var(--orange)">' + fmtBytes(d.used) + '</b></div>' +
+          '<div><span style="color:var(--muted);font-size:11px;display:block">AVAILABLE</span><b style="font-size:15px;color:var(--green)">' + fmtBytes(d.free) + '</b></div>' +
+        '</div>' +
+        '<div class="disk-grid">' +
+          '<div class="donut-box">' +
+            '<svg width="180" height="180" viewBox="0 0 180 180">' +
+              '<circle r="' + R + '" cx="90" cy="90" fill="transparent" stroke="rgba(255,255,255,0.08)" stroke-width="22"/>' +
+              circles +
+            '</svg>' +
+            '<div class="donut-center"><b>' + usedPct + '%</b><span>Used</span></div>' +
+          '</div>' +
+          '<div class="legend-list">' + legend + '</div>' +
+        '</div>';
+    }).catch(function (e) {
+      suiteBody.innerHTML = '<div style="color:var(--red)">Error loading disk analytics: ' + esc(e.message) + '</div>';
+    });
+  });
+
+  // 7C. Quick Snapshot / Backup to Zip
+  document.getElementById('btnSysSnap').addEventListener('click', function () {
+    openSuiteModal(IC_SNAP + '<span>Quick Snapshot to Zip</span>',
+      '<p style="margin:0 0 12px;color:var(--muted);font-size:13.5px;line-height:1.45">Create an instant <code>.zip</code> backup directly inside your <code>/backup</code> folder before editing configuration files.</p>' +
+      '<div class="snap-stack">' +
+        '<button id="btnSnapConfig" class="snap-card primary" type="button">' +
+          '<div class="snap-ic">' + IC_SNAP + '</div>' +
+          '<div class="snap-txt"><b>Backup Entire /config Folder</b><span>Compresses all YAML, custom_components &amp; storage (excludes heavy DB/logs)</span></div>' +
+        '</button>' +
+        '<button id="btnSnapAuto" class="snap-card" type="button">' +
+          '<div class="snap-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></div>' +
+          '<div class="snap-txt"><b>Backup Automations &amp; Scripts Only</b><span>Fast lightweight snapshot of automations, scripts, scenes &amp; packages</span></div>' +
+        '</button>' +
+      '</div>' +
+      '<div id="snapStatus" style="padding:12px 14px;border-radius:12px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.08);font-family:monospace;font-size:12.5px;color:var(--muted);word-break:break-word">Ready to create snapshot.</div>'
+    );
+    function triggerSnap(target) {
+      var st = document.getElementById('snapStatus');
+      st.style.color = '#58a6ff';
+      st.textContent = 'Compressing files into /backup ... Please wait...';
+      fetch(apiUrl('snapshot'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: target }) })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (!res.ok) throw new Error(res.error || 'Snapshot failed');
+          st.style.color = '#30d158';
+          st.innerHTML = '✓ Snapshot saved: <b>' + esc(res.path) + '</b> (' + res.size_kb + ' KB)';
+          showToast('Saved to ' + res.path);
+        }).catch(function (e) {
+          st.style.color = 'var(--red)';
+          st.textContent = 'Error: ' + e.message;
+        });
+    }
+    document.getElementById('btnSnapConfig').addEventListener('click', function () { triggerSnap('config'); });
+    document.getElementById('btnSnapAuto').addEventListener('click', function () { triggerSnap('automations'); });
+  });
+
+  // 7D. Multi-Protocol Connect Hub
+  document.getElementById('btnSysConnect').addEventListener('click', function () {
+    openSuiteModal(IC_GLOBE + '<span>Multi-Protocol Connect Hub</span>', '<div style="text-align:center;padding:24px;color:var(--muted)">Loading active protocols...</div>');
+    fetch(apiUrl('protocols')).then(function (r) { return r.json(); }).then(function (info) {
+      var host = location.hostname || 'homeassistant.local';
+      var webdavUrl = ingressPrefix ? (location.protocol + '//' + host + ':8090/') : (location.origin + '/');
+      var smbUrl = 'smb://' + host + '/OmniDrive';
+      var winUnc = '\\\\' + host + '\\OmniDrive';
+      var sftpUrl = 'sftp://' + (info.default_user || 'admin') + '@' + host + ':2222/';
+      var ftpUrl = 'ftp://' + (info.default_user || 'admin') + '@' + host + ':2121/';
+
+      suiteBody.innerHTML =
+        '<p style="margin:0 0 12px;color:var(--muted);font-size:13px;line-height:1.45">Tap any protocol card below to copy its connection address. All protocols share your same <b>users</b> credentials.</p>' +
+        '<div class="snap-stack">' +
+          '<button class="snap-card primary proto-copy" data-copy="' + esc(smbUrl) + '" type="button">' +
+            '<div class="snap-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>' +
+            '<div class="snap-txt"><b>SMB / Samba • Port 445 (' + (info.smb ? 'Active' : 'Disabled') + ')</b><span>iOS Files ("Connect to Server"), macOS Finder &amp; Infuse: <code>' + esc(smbUrl) + '</code><br>Windows Explorer: <code>' + esc(winUnc) + '</code></span></div>' +
+          '</button>' +
+          '<button class="snap-card proto-copy" data-copy="' + esc(sftpUrl) + '" type="button">' +
+            '<div class="snap-ic">' + IC_TERM + '</div>' +
+            '<div class="snap-txt"><b>SFTP (SSH File Transfer) • Port 2222 (' + (info.sftp ? 'Active' : 'Disabled') + ')</b><span>Termius, Cyberduck, FileZilla, FE File Explorer: <code>' + esc(sftpUrl) + '</code></span></div>' +
+          '</button>' +
+          '<button class="snap-card proto-copy" data-copy="' + esc(ftpUrl) + '" type="button">' +
+            '<div class="snap-ic">' + IC_SHARE + '</div>' +
+            '<div class="snap-txt"><b>FTP Server • Port 2121 (' + (info.ftp ? 'Active' : 'Disabled') + ')</b><span>Standard FTP Clients &amp; Network Scanners: <code>' + esc(ftpUrl) + '</code></span></div>' +
+          '</button>' +
+          '<button class="snap-card proto-copy" data-copy="' + esc(webdavUrl) + '" type="button">' +
+            '<div class="snap-ic">' + IC_GLOBE + '</div>' +
+            '<div class="snap-txt"><b>WebDAV / HTTPS • Port 8090 (Active)</b><span>Cloudflare Tunnel &amp; WebDAV Clients: <code>' + esc(webdavUrl) + '</code></span></div>' +
+          '</button>' +
+        '</div>';
+
+      [].slice.call(suiteBody.querySelectorAll('.proto-copy')).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var val = this.getAttribute('data-copy');
+          if (navigator.clipboard) navigator.clipboard.writeText(val);
+          showToast('Copied: ' + val);
+        });
+      });
+    });
+  });
+
+  // 7E. Audit Log & Active Share Links Manager
+  function openAuditAndSharesModal() {
+    openSuiteModal(IC_SHIELD + '<span>Security Audit &amp; Share Links</span>', '<div style="text-align:center;padding:24px;color:var(--muted)">Loading security records...</div>');
+    Promise.all([
+      fetch(apiUrl('shares')).then(function (r) { return r.json(); }),
+      fetch(apiUrl('audit?limit=120')).then(function (r) { return r.json(); })
+    ]).then(function (results) {
+      var shares = (results[0] && results[0].shares) || [];
+      var logs = (results[1] && results[1].logs) || [];
+
+      var sharesRows = shares.length ? shares.map(function (s) {
+        var minsLeft = Math.max(0, Math.round((s.exp - Date.now() / 1000) / 60));
+        var timeStr = minsLeft >= 60 ? (Math.round(minsLeft / 6) / 10) + 'h left' : minsLeft + 'm left';
+        var extUrl = (ingressPrefix ? (location.protocol + '//' + location.hostname + ':8090') : location.origin) + '/s/' + s.token;
+        var ingUrl = location.origin + ingressPrefix + '/s/' + s.token;
+        return '<div class="ios-row">' +
+          '<div class="ios-row-main">' +
+            '<div class="ios-row-top">' +
+              '<span class="badge-m badge-SHARE_CREATE">' + esc(timeStr) + '</span>' +
+              '<span class="ios-row-title">' + esc(s.name) + '</span>' +
+            '</div>' +
+            '<div class="ios-row-sub">' + esc(s.path) + '</div>' +
+          '</div>' +
+          '<button class="ios-row-more share-opt-btn" data-name="' + esc(s.name) + '" data-tok="' + esc(s.token) + '" data-ext="' + esc(extUrl) + '" data-ing="' + esc(ingUrl) + '" type="button" title="Share Link Options">' + MORE_DOTS_SVG + '</button>' +
+        '</div>';
+      }).join('') : '<div class="ios-row"><div class="ios-row-sub" style="padding:4px 0">No active share links. Tap <b>⋯</b> on any folder or file to create an expiry link.</div></div>';
+
+      var logsRows = logs.length ? logs.map(function (l) {
+        var m = esc(l.method || 'INFO');
+        var tClean = esc((l.time || '').replace('T', ' ').slice(0, 19));
+        return '<div class="ios-row">' +
+          '<div class="ios-row-main">' +
+            '<div class="ios-row-top">' +
+              '<span class="badge-m badge-' + m + '">' + m + '</span>' +
+              '<span class="ios-row-title">' + esc(l.path || '/') + '</span>' +
+            '</div>' +
+            '<div class="ios-row-sub">' + tClean + ' • ' + esc(l.user || 'ingress') + ' • ' + esc(l.ip || 'local') + '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('') : '<div class="ios-row"><div class="ios-row-sub" style="padding:4px 0">No file modifications or downloads recorded yet.</div></div>';
+
+      suiteBody.innerHTML =
+        '<div class="ios-sec-head">' +
+          '<span class="ios-sec-title">Active Expiry Share Links (' + shares.length + ')</span>' +
+        '</div>' +
+        '<div class="ios-group-card">' + sharesRows + '</div>' +
+        '<div class="ios-sec-head">' +
+          '<span class="ios-sec-title">Recent Security Audit Log</span>' +
+          '<button id="btnClearAudit" class="ed-chip" style="color:var(--red);border-color:rgba(255,69,58,.3)" type="button">Clear Log</button>' +
+        '</div>' +
+        '<div class="ios-group-card" style="max-height:300px;overflow-y:auto;margin-bottom:0">' + logsRows + '</div>';
+
+      [].slice.call(suiteBody.querySelectorAll('.share-opt-btn')).forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var name = this.getAttribute('data-name');
+          var tok = this.getAttribute('data-tok');
+          var extU = this.getAttribute('data-ext');
+          var ingU = this.getAttribute('data-ing');
+          openShareItemOptionsModal(name, tok, extU, ingU);
+        });
+      });
+
+      var clrBtn = document.getElementById('btnClearAudit');
+      if (clrBtn) clrBtn.addEventListener('click', function () {
+        showIosDialog({
+          type: 'danger',
+          title: 'Clear Audit Log?',
+          message: 'Are you sure you want to permanently clear all security audit log records?',
+          buttons: [
+            { label: 'Clear All Logs', role: 'danger', onClick: function () {
+              fetch(apiUrl('audit_clear'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(function () { openAuditAndSharesModal(); showToast('Audit log cleared'); });
+            }},
+            { label: 'Cancel', role: 'cancel' }
+          ]
+        });
+      });
+    });
+  }
+
+  function openShareItemOptionsModal(name, tok, extU, ingU) {
+    openSuiteModal(IC_SHARE + '<span>Share Link Options</span>',
+      '<div class="ios-group-card">' +
+        '<div class="ios-row"><div class="ios-row-main"><div class="ios-row-title">' + esc(name) + '</div><div class="ios-row-sub">' + esc(extU) + '</div></div></div>' +
+      '</div>' +
+      '<div class="snap-stack">' +
+        '<button id="optCopyExt" class="snap-card primary" type="button"><div class="snap-ic">' + IC_SHARE + '</div><div class="snap-txt"><b>Copy Public / Cloudflare Link</b><span>Share with external users (no WebDAV password needed)</span></div></button>' +
+        '<button id="optCopyIng" class="snap-card" type="button"><div class="snap-ic">' + IC_SHARE + '</div><div class="snap-txt"><b>Copy Home Assistant Ingress Link</b><span>Direct download link for logged-in HA sessions</span></div></button>' +
+        '<button id="optRevoke" class="snap-card" style="border-color:rgba(255,69,58,.35)" type="button"><div class="snap-ic" style="background:rgba(255,69,58,.15);border-color:rgba(255,69,58,.35);color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></div><div class="snap-txt"><b style="color:var(--red)">Revoke Share Link Immediately</b><span>Disable this download token right now</span></div></button>' +
+      '</div>' +
+      '<button id="optBackAudit" class="act-btn" style="width:100%" type="button">← Back to Audit &amp; Share Links</button>'
+    );
+    document.getElementById('optCopyExt').addEventListener('click', function () {
+      if (navigator.clipboard) navigator.clipboard.writeText(extU);
+      showToast('Copied Public Share URL!');
+    });
+    document.getElementById('optCopyIng').addEventListener('click', function () {
+      if (navigator.clipboard) navigator.clipboard.writeText(ingU);
+      showToast('Copied Ingress Share URL!');
+    });
+    document.getElementById('optRevoke').addEventListener('click', function () {
+      showIosDialog({
+        type: 'danger',
+        title: 'Revoke Share Link?',
+        message: 'Anyone with the link for <b>' + esc(name) + '</b> will no longer be able to download it.',
+        buttons: [
+          { label: 'Revoke Link', role: 'danger', onClick: function () {
+            fetch(apiUrl('share'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'revoke', token: tok }) })
+              .then(function () { showToast('Share link revoked'); openAuditAndSharesModal(); });
+          }},
+          { label: 'Cancel', role: 'cancel' }
+        ]
+      });
+    });
+    document.getElementById('optBackAudit').addEventListener('click', openAuditAndSharesModal);
+  }
+
+  document.getElementById('btnSysAudit').addEventListener('click', openAuditAndSharesModal);
+
+  // 8. Tạo File, Tạo Folder, Upload, Kéo-Thả & Dán Clipboard
+  document.getElementById('btnNewFile').addEventListener('click', function () {
+    showIosDialog({
+      type: 'info',
+      title: 'Create New File',
+      message: 'Enter a name for the new file (e.g. <code>script.yaml</code>, <code>notes.md</code>):',
+      input: true,
+      placeholder: 'filename.yaml',
+      buttons: [
+        { label: 'Create & Edit', role: 'primary', onClick: function (name) {
+          if (!name || !name.trim()) return;
+          var clean = name.trim().replace(/^\/+/, ''), extMatch = /\.([a-z0-9]+)$/i.exec(clean), ext = extMatch ? extMatch[1].toLowerCase() : 'yaml';
+          fetch(buildWebdavUrl(encodeURIComponent(clean)), { method: 'PUT', credentials: 'same-origin', body: '' }).then(function (r) {
+            if (r.ok || r.status === 201 || r.status === 204) openCodeEditor(clean, encodeURIComponent(clean), ext, true);
+            else showToast('Error: HTTP ' + r.status);
+          });
+        }},
+        { label: 'Cancel', role: 'cancel' }
+      ]
+    });
+  });
+
+  document.getElementById('btnNewDir').addEventListener('click', function () {
+    showIosDialog({
+      type: 'info',
+      title: 'Create New Folder',
+      message: 'Enter a name for the new folder:',
+      input: true,
+      placeholder: 'New_Folder',
+      buttons: [
+        { label: 'Create Folder', role: 'primary', onClick: function (name) {
+          if (!name || !name.trim()) return;
+          var clean = name.trim().replace(/^\/+|\/+$/g, '');
+          fetch(buildWebdavUrl(encodeURIComponent(clean) + '/'), { method: 'MKCOL', credentials: 'same-origin' }).then(function (r) {
+            if (r.ok || r.status === 201) { showToast('Folder created'); setTimeout(function () { location.reload(); }, 400); }
+            else showToast('Error: HTTP ' + r.status);
+          });
+        }},
+        { label: 'Cancel', role: 'cancel' }
+      ]
+    });
+  });
+
+  var fileInput = document.getElementById('fileInput'), uploadProg = document.getElementById('uploadProg'), uploadText = document.getElementById('uploadText'), progBar = document.getElementById('progBar');
+  function uploadFileList(files) {
+    if (!files || !files.length) return;
+    uploadProg.classList.add('show'); var idx = 0;
+    function next() {
+      if (idx >= files.length) { showToast('Uploaded ' + files.length + ' file(s)!'); setTimeout(function () { location.reload(); }, 400); return; }
+      var f = files[idx++], xhr = new XMLHttpRequest();
+      xhr.open('PUT', buildWebdavUrl(encodeURIComponent(f.name)), true);
+      xhr.upload.onprogress = function (e) {
+        if (e.lengthComputable) { var pct = Math.round((e.loaded / e.total) * 100); uploadText.textContent = 'Uploading ' + f.name + ' (' + pct + '%)'; progBar.style.width = pct + '%'; }
+      };
+      xhr.onload = next; xhr.onerror = function () { showToast('Failed uploading ' + f.name); next(); };
+      xhr.send(f);
+    }
+    next();
+  }
+  document.getElementById('btnUpload').addEventListener('click', function () { fileInput.click(); });
+  fileInput.addEventListener('change', function () { uploadFileList([].slice.call(this.files)); });
+
+  window.addEventListener('dragover', function (e) { e.preventDefault(); document.body.classList.add('dragging'); });
+  window.addEventListener('dragleave', function (e) { if (e.relatedTarget === null) document.body.classList.remove('dragging'); });
+  window.addEventListener('drop', function (e) {
+    e.preventDefault(); document.body.classList.remove('dragging');
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) uploadFileList([].slice.call(e.dataTransfer.files));
+  });
+  window.addEventListener('paste', function (e) {
+    if (editorModal.classList.contains('show') || suiteModal.classList.contains('show') || iosDialogMask.classList.contains('show') || document.activeElement === document.getElementById('q')) return;
+    var items = e.clipboardData && e.clipboardData.files;
+    if (items && items.length) uploadFileList([].slice.call(items));
+  });
+
+  // 9. iOS Action Sheet & Hộp thoại xác nhận Xoá / Đổi tên / Nhân bản
+  var backdrop = document.getElementById('backdrop'), sheet = document.getElementById('sheet'), selectedItem = null;
+  function openActionSheet(item) {
+    selectedItem = item;
+    document.getElementById('sheetTitle').textContent = item.name + (item.isDir ? '/' : '');
+    document.getElementById('actEdit').style.display = item.isDir ? 'none' : 'flex';
+    document.getElementById('actHex').style.display = item.isDir ? 'none' : 'flex';
+    document.getElementById('actShareLink').style.display = 'flex';
+    document.getElementById('actDownload').style.display = item.isDir ? 'none' : 'flex';
+    backdrop.classList.add('show'); sheet.classList.add('show');
+  }
+  function closeActionSheet() { backdrop.classList.remove('show'); sheet.classList.remove('show'); }
+  backdrop.addEventListener('click', closeActionSheet);
+  document.getElementById('actCancelSheet').addEventListener('click', closeActionSheet);
+
+  document.getElementById('actEdit').addEventListener('click', function () {
+    if (!selectedItem) return; var item = selectedItem; closeActionSheet();
+    var extMatch = /\.([a-z0-9]+)$/i.exec(item.name);
+    openCodeEditor(item.name, item.href, extMatch ? extMatch[1].toLowerCase() : 'yaml', false);
+  });
+  document.getElementById('actHex').addEventListener('click', function () {
+    if (!selectedItem) return; var item = selectedItem; closeActionSheet();
+    openHexViewer(item.name, item.href);
+  });
+  document.getElementById('actShareLink').addEventListener('click', function () {
+    if (!selectedItem) return; var item = selectedItem; closeActionSheet();
+    var desc = item.isDir
+      ? 'Generate a temporary download URL for folder <b>/' + esc(item.name) + '</b> (automatically packaged as a <code>.zip</code> archive on download).'
+      : 'Generate a temporary direct download URL for <b>' + esc(item.name) + '</b> without exposing your password.';
+    openSuiteModal(IC_SHARE + '<span>Create Expiry Share Link</span>',
+      '<p style="margin:0 0 12px;color:var(--muted);font-size:13.5px;line-height:1.45">' + desc + '</p>' +
+      '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:14px">' +
+        '<button class="act-btn ttl-btn" data-ttl="3600" type="button"><span>1 Hour</span></button>' +
+        '<button class="act-btn ttl-btn" data-ttl="21600" type="button"><span>6 Hours</span></button>' +
+        '<button class="act-btn primary ttl-btn" data-ttl="86400" type="button"><span>24 Hours</span></button>' +
+        '<button class="act-btn ttl-btn" data-ttl="604800" type="button"><span>7 Days</span></button>' +
+      '</div>' +
+      '<div id="shareResultBox" style="padding:12px 14px;border-radius:12px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.08);font-size:13px;color:var(--muted)">Tap an expiration duration above to generate link.</div>'
+    );
+    [].slice.call(suiteBody.querySelectorAll('.ttl-btn')).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var ttl = parseInt(this.getAttribute('data-ttl'), 10);
+        var box = document.getElementById('shareResultBox');
+        box.textContent = 'Generating secure share token...';
+        fetch(apiUrl('share'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create', path: decodeURIComponent(item.internalPath), ttl: ttl }) })
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            if (!res.ok) throw new Error(res.error || 'Failed');
+            var externalShareUrl = (ingressPrefix ? (location.protocol + '//' + location.hostname + ':8090') : location.origin) + '/s/' + res.token;
+            var currentOriginUrl = location.origin + ingressPrefix + '/s/' + res.token;
+            openShareItemOptionsModal(res.name, res.token, externalShareUrl, currentOriginUrl);
+          }).catch(function (err) { box.style.color = 'var(--red)'; box.textContent = 'Error: ' + err.message; });
+      });
+    });
+  });
+
+  document.getElementById('actCopyPath').addEventListener('click', function () {
+    if (!selectedItem) return; closeActionSheet();
+    var cleanPath = decodeURIComponent(selectedItem.internalPath);
+    if (navigator.clipboard) navigator.clipboard.writeText(cleanPath);
+    showToast('Copied: ' + cleanPath);
+  });
+  document.getElementById('actDownload').addEventListener('click', function () {
+    if (!selectedItem) return; closeActionSheet();
+    var link = document.createElement('a'); link.href = buildWebdavUrl(selectedItem.href); link.download = selectedItem.name;
+    document.body.appendChild(link); link.click(); link.remove();
+  });
+  document.getElementById('actDup').addEventListener('click', function () {
+    if (!selectedItem) return; var item = selectedItem; closeActionSheet();
+    showIosDialog({
+      type: 'info',
+      title: 'Duplicate Item',
+      message: 'Enter a name for the duplicate of <b>' + esc(item.name) + '</b>:',
+      input: true,
+      defaultValue: 'copy_' + item.name,
+      buttons: [
+        { label: 'Duplicate', role: 'primary', onClick: function (dupName) {
+          if (!dupName || !dupName.trim()) return;
+          var destInternal = p + encodeURIComponent(dupName.trim()) + (item.isDir ? '/' : '');
+          fetch(buildWebdavUrl(item.href), { method: 'COPY', credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'T' } }).then(function (r) {
+            if (r.ok || r.status === 201 || r.status === 204) { showToast('Duplicated'); setTimeout(function () { location.reload(); }, 400); }
+          });
+        }},
+        { label: 'Cancel', role: 'cancel' }
+      ]
+    });
+  });
+  document.getElementById('actRename').addEventListener('click', function () {
+    if (!selectedItem) return; var item = selectedItem; closeActionSheet();
+    showIosDialog({
+      type: 'info',
+      title: 'Rename Item',
+      message: 'Enter a new name for <b>' + esc(item.name) + '</b>:',
+      input: true,
+      defaultValue: item.name,
+      buttons: [
+        { label: 'Rename', role: 'primary', onClick: function (newName) {
+          if (!newName || !newName.trim() || newName.trim() === item.name) return;
+          var destInternal = p + encodeURIComponent(newName.trim()) + (item.isDir ? '/' : '');
+          fetch(buildWebdavUrl(item.href), { method: 'MOVE', credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'T' } }).then(function (r) {
+            if (r.ok || r.status === 201 || r.status === 204) { showToast('Renamed'); setTimeout(function () { location.reload(); }, 400); }
+          });
+        }},
+        { label: 'Cancel', role: 'cancel' }
+      ]
+    });
+  });
+  document.getElementById('actDelete').addEventListener('click', function () {
+    if (!selectedItem) return; var item = selectedItem; closeActionSheet();
+    showIosDialog({
+      type: 'danger',
+      title: 'Delete Permanently?',
+      message: 'Are you sure you want to delete <b>' + esc(item.name + (item.isDir ? '/' : '')) + '</b>? This action cannot be undone.',
+      buttons: [
+        { label: 'Delete Permanently', role: 'danger', onClick: function () {
+          fetch(buildWebdavUrl(item.href), { method: 'DELETE', credentials: 'same-origin' }).then(function (r) {
+            if (r.ok || r.status === 200 || r.status === 204) { showToast('Deleted ' + item.name); setTimeout(function () { location.reload(); }, 400); }
+          });
+        }},
+        { label: 'Cancel', role: 'cancel' }
+      ]
+    });
+  });
+
+  var clipBar = document.getElementById('clipBar'), clipModeEl = document.getElementById('clipMode'), clipNameEl = document.getElementById('clipName');
+  function refreshClipBar() {
+    try {
+      var raw = sessionStorage.getItem('wpro_clip');
+      if (!raw) { clipBar.classList.remove('show'); return; }
+      var clip = JSON.parse(raw);
+      clipModeEl.textContent = clip.mode === 'MOVE' ? 'READY TO MOVE' : 'COPIED TO CLIPBOARD';
+      clipNameEl.textContent = clip.items.length === 1 ? clip.items[0].name : clip.items.length + ' items';
+      clipBar.classList.add('show');
+    } catch (e) { clipBar.classList.remove('show'); }
+  }
+  refreshClipBar();
+  function setClip(mode, items) { sessionStorage.setItem('wpro_clip', JSON.stringify({ mode: mode, items: items })); refreshClipBar(); }
+
+  document.getElementById('actCopy').addEventListener('click', function () { if (selectedItem) { setClip('COPY', [selectedItem]); closeActionSheet(); showToast('Copied'); } });
+  document.getElementById('actCut').addEventListener('click', function () { if (selectedItem) { setClip('MOVE', [selectedItem]); closeActionSheet(); showToast('Cut'); } });
+  document.getElementById('btnBatchCopy').addEventListener('click', function () { if (selectedSet.length) { setClip('COPY', selectedSet.slice()); btnSelectMode.click(); } });
+  document.getElementById('btnBatchMove').addEventListener('click', function () { if (selectedSet.length) { setClip('MOVE', selectedSet.slice()); btnSelectMode.click(); } });
+  document.getElementById('btnBatchDel').addEventListener('click', function () {
+    if (!selectedSet.length) return;
+    var count = selectedSet.length;
+    showIosDialog({
+      type: 'danger',
+      title: 'Delete ' + plural(count, 'Item') + '?',
+      message: 'Are you sure you want to permanently delete the <b>' + count + ' selected item(s)</b>? This action cannot be undone.',
+      buttons: [
+        { label: 'Delete All Selected', role: 'danger', onClick: function () {
+          Promise.all(selectedSet.map(function (it) { return fetch(ingressPrefix + it.internalPath, { method: 'DELETE', credentials: 'same-origin' }); })).then(function () { location.reload(); });
+        }},
+        { label: 'Cancel', role: 'cancel' }
+      ]
+    });
+  });
+  document.getElementById('btnCancelClip').addEventListener('click', function () { sessionStorage.removeItem('wpro_clip'); refreshClipBar(); });
+  document.getElementById('btnPaste').addEventListener('click', function () {
+    var raw = sessionStorage.getItem('wpro_clip'); if (!raw) return; var clip = JSON.parse(raw);
+    Promise.all(clip.items.map(function (it) {
+      var destInternal = p + encodeURIComponent(it.name) + (it.isDir ? '/' : '');
+      if (destInternal === it.internalPath) destInternal = p + encodeURIComponent('copy_' + it.name) + (it.isDir ? '/' : '');
+      return fetch(ingressPrefix + it.internalPath, { method: clip.mode, credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'T' } });
+    })).then(function () { if (clip.mode === 'MOVE') sessionStorage.removeItem('wpro_clip'); location.reload(); });
+  });
+
+  // 10. Search, Sort & Grid/List View
+  var qInput = document.getElementById('q'), clearBtn = document.getElementById('clearBtn'), emptyEl = document.getElementById('empty');
+  function filterRows() {
+    var v = qInput.value.trim().toLowerCase(); clearBtn.classList.toggle('show', v.length > 0); var c = 0;
+    rows.forEach(function (tr) { var n = tr.getAttribute('data-n'); if (n === null) return; var m = !v || n.indexOf(v) !== -1; tr.style.display = m ? '' : 'none'; if (m) c++; });
+    emptyEl.classList.toggle('show', c === 0 && (nd + nf) > 0);
+  }
+  qInput.addEventListener('input', filterRows);
+  clearBtn.addEventListener('click', function () { qInput.value = ''; filterRows(); qInput.focus(); });
+
+  var s = document.getElementById('sort'), cur = location.search.replace(/^\?/, '');
+  if (cur) for (var i = 0; i < s.options.length; i++) if (s.options[i].value === cur) s.selectedIndex = i;
+  s.addEventListener('change', function () { location.search = '?' + this.value; });
+
+  var viewBtn = document.getElementById('viewBtn'), viewIcon = document.getElementById('viewIcon');
+  var gridSvg = '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>';
+  var listSvg = '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>';
+  function applyView(mode) { var g = mode === 'grid'; document.body.classList.toggle('grid-mode', g); viewIcon.innerHTML = g ? listSvg : gridSvg; }
+  var savedView = localStorage.getItem('wpro_view') || 'list'; applyView(savedView);
+  viewBtn.addEventListener('click', function () { savedView = document.body.classList.contains('grid-mode') ? 'list' : 'grid'; localStorage.setItem('wpro_view', savedView); applyView(savedView); });
+})();
+</script>
+</body>
+</html>

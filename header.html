@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b162c">
+<title>OmniDrive Pro</title>
+<script>
+  if (window.self === window.top && !/^\/api\/hassio_ingress\//.test(location.pathname)) {
+    document.documentElement.classList.add('standalone-web');
+  }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/ace.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/ext-searchbox.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js" defer></script>
+<style>
+:root {
+  --bg:#0b162c;
+  --card:rgba(24,30,46,.78);
+  --card-elevated:rgba(38,46,66,.9);
+  --card-hover:rgba(50,60,84,.76);
+  --glass-border:rgba(255,255,255,.12);
+  --sep:rgba(255,255,255,.08);
+  --text:#fff; --muted:#94a3b8;
+  --blue:#0a84ff; --blue-bg:rgba(10,132,255,.22);
+  --green:#30d158; --orange:#ff9f0a; --red:#ff453a; --purple:#bf5af2;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{
+  margin:0;padding:0;width:100%;min-height:100%;
+  background-color:#0b162c!important;
+  -webkit-overflow-scrolling:touch;
+}
+body{
+  margin:0;width:100%;min-height:100vh;min-height:100dvh;color:var(--text);
+  background-color:#0b162c!important;
+  background-image:
+    radial-gradient(circle at 18% 22%,rgba(14,165,233,.24),transparent 50%),
+    radial-gradient(circle at 82% 28%,rgba(10,132,255,.2),transparent 48%),
+    radial-gradient(circle at 78% 75%,rgba(139,92,246,.22),transparent 52%),
+    radial-gradient(circle at 22% 78%,rgba(37,99,235,.18),transparent 52%),
+    linear-gradient(180deg,#0b162c 0%,#0e1d3a 50%,#0b162c 100%)!important;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Segoe UI",Roboto,sans-serif;
+  /* Khoảng cách đỉnh 12px gọn gàng, vừa khít trên cả HASS lẫn Safari */
+  padding:12px 16px 40px;
+  -webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased;
+  overflow-x:hidden;overflow-y:auto;position:relative;
+}
+/* Trên Safari độc lập: giữ nguyên đỉnh 12px gọn gàng, chỉ chừa khoảng trống dưới đáy cho thanh địa chỉ Safari */
+html.standalone-web body{
+  padding-top:12px;
+  padding-bottom:92px;
+}
+.container{max-width:860px;margin:0 auto}
+#fxi-raw{font-size:0!important;line-height:0!important;color:transparent!important;margin-top:4px}
+#fxi-raw>h1,#fxi-raw>p,#fxi-raw>hr{display:none!important}
+
+.drop-zone{
+  position:fixed;inset:12px;border:2.5px dashed var(--blue);border-radius:24px;
+  background:rgba(10,132,255,.14);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  z-index:250;display:none;place-items:center;font-size:20px;font-weight:700;color:var(--blue);pointer-events:none;
+}
+body.dragging .drop-zone{display:grid}
+
+.nav{
+  position:sticky;top:0;z-index:20;display:none;align-items:center;justify-content:space-between;
+  height:42px;margin:-12px -16px 12px;padding:0 16px;background:rgba(11,22,44,.88);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:.5px solid var(--sep);
+}
+.nav.show{display:flex}
+.back{display:inline-flex;align-items:center;gap:5px;color:var(--blue);text-decoration:none;font-size:17px;font-weight:500;max-width:80%;padding:6px 0}
+.back span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.hero{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 2px 12px}
+.hero-left{display:flex;align-items:center;gap:13px;min-width:0;flex:1}
+.app-badge{
+  width:46px;height:46px;border-radius:13px;flex:none;
+  background:linear-gradient(145deg,#0f172a,#1e293b);border:1px solid rgba(56,189,248,.5);
+  box-shadow:0 8px 22px rgba(10,132,255,.32);display:grid;place-items:center;
+}
+.app-badge svg{width:27px;height:27px}
+.hero-titles{min-width:0;flex:1}
+.title{font-size:23px;font-weight:700;letter-spacing:-.022em;line-height:1.2;margin:0;color:var(--text);word-break:break-word}
+.subtitle{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.git-repo-pill{display:none;align-items:center;gap:4px;background:rgba(48,209,88,.16);border:.5px solid rgba(48,209,88,.35);color:var(--green);padding:2px 8px;border-radius:8px;font-size:11px;font-weight:600}
+.git-repo-pill.show{display:inline-flex}
+.hero-right{display:flex;align-items:center;gap:7px;flex:none}
+.select-toggle{
+  height:34px;padding:0 14px;border-radius:17px;border:1px solid var(--glass-border);
+  background:var(--card);color:var(--blue);font-size:14px;font-weight:600;cursor:pointer;flex:none;box-shadow:0 4px 12px rgba(0,0,0,.22);
+}
+.select-toggle.active{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 4px 16px rgba(10,132,255,.4)}
+.logout-btn{
+  width:34px;height:34px;border-radius:17px;border:1px solid rgba(255,69,58,.28);
+  background:rgba(255,69,58,.14);color:var(--red);display:none;place-items:center;cursor:pointer;
+}
+.logout-btn.show{display:grid}
+.logout-btn svg{width:15px;height:15px}
+
+.search-wrap{position:relative;margin:0 0 11px}
+.search{
+  -webkit-appearance:none;appearance:none;width:100%;height:42px;border:1px solid var(--glass-border);border-radius:13px;outline:none;
+  font-size:16px;color:var(--text);padding:0 38px;
+  background:var(--card) no-repeat 12px 50%;
+  box-shadow:0 6px 18px rgba(0,0,0,.25);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6.5'/%3E%3Cpath d='M20 20l-4.8-4.8'/%3E%3C/svg%3E");
+  transition:border-color .15s,background-color .15s;
+}
+.search:focus{background-color:var(--card-elevated);border-color:var(--blue)}
+.search::placeholder{color:var(--muted)}
+.clear-btn{position:absolute;right:9px;top:50%;transform:translateY(-50%);width:22px;height:22px;border:0;padding:0;background:none;display:none;place-items:center;cursor:pointer}
+.clear-btn.show{display:grid}
+
+.action-bar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 8px}
+.sys-bar{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:0 0 13px}
+@media (max-width:620px){
+  .sys-bar{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .sys-bar>.act-btn:nth-child(1),.sys-bar>.act-btn:nth-child(2),.sys-bar>.act-btn:nth-child(3){grid-column:span 2}
+  .sys-bar>.act-btn:nth-child(4),.sys-bar>.act-btn:nth-child(5){grid-column:span 3}
+}
+.act-btn{
+  height:38px;padding:0 10px;border:1px solid var(--glass-border);border-radius:12px;
+  background:var(--card);color:#e5e5ea;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13.5px;font-weight:600;
+  cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2);white-space:nowrap;min-width:0;overflow:hidden;transition:transform .12s,background .15s,border-color .15s;
+}
+.act-btn span{overflow:hidden;text-overflow:ellipsis}
+.act-btn:hover{border-color:rgba(56,189,248,.35)}
+.act-btn:active{transform:scale(.96);background:var(--card-elevated)}
+.act-btn svg{width:16px;height:16px;flex:none;color:#38bdf8}
+.act-btn.primary{background:linear-gradient(145deg,rgba(10,132,255,.36),rgba(2,132,199,.24));border-color:rgba(56,189,248,.48);color:#fff;box-shadow:0 6px 16px rgba(10,132,255,.25)}
+.act-btn.primary svg{color:#5ac8fa}
+
+.upload-prog{display:none;margin:0 0 12px;background:var(--card);border:1px solid var(--glass-border);border-radius:12px;padding:10px 14px;font-size:13px}
+.upload-prog.show{display:block}
+.prog-track{height:6px;background:rgba(255,255,255,.1);border-radius:3px;overflow:hidden;margin-top:6px}
+.prog-bar{height:100%;width:0%;background:var(--blue);transition:width .15s ease}
+
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 2px 14px}
+.crumbs{display:flex;align-items:center;flex-wrap:nowrap;gap:5px;font-size:13px;color:var(--muted);overflow-x:auto;scrollbar-width:none;padding:2px 0;min-width:0;flex:1}
+.crumbs::-webkit-scrollbar{display:none}
+.crumbs a,.crumbs b{
+  display:inline-flex;align-items:center;gap:5px;white-space:nowrap;padding:5px 11px;border-radius:10px;
+  background:var(--card);border:1px solid var(--glass-border);text-decoration:none;font-size:13px;
+}
+.crumbs a{color:#5ac8fa;font-weight:500}
+.crumbs b{color:var(--text);font-weight:600;background:rgba(10,132,255,.22);border-color:rgba(10,132,255,.42);cursor:pointer}
+.crumbs .sep{color:#64748b;font-size:13px;flex:none}
+
+.controls{display:flex;align-items:center;gap:8px;flex:none}
+.sort-pill{position:relative;display:inline-flex;align-items:center}
+.sort{
+  -webkit-appearance:none;appearance:none;height:34px;border:1px solid var(--glass-border);border-radius:17px;
+  background:var(--card);color:#5ac8fa;font-size:13.5px;font-weight:600;padding:0 28px 0 13px;outline:none;cursor:pointer;
+}
+.sort-pill::after{content:"";position:absolute;right:11px;top:50%;width:6px;height:6px;border-right:1.8px solid #5ac8fa;border-bottom:1.8px solid #5ac8fa;transform:translateY(-65%) rotate(45deg);pointer-events:none}
+.view-btn{
+  width:34px;height:34px;border:1px solid var(--glass-border);border-radius:17px;
+  background:var(--card);color:#5ac8fa;display:grid;place-items:center;cursor:pointer;
+}
+.view-btn svg{width:16px;height:16px}
+
+table#list,#list tbody{display:block;width:100%;border:0;font-size:16px;line-height:1.35;color:var(--text)}
+#list thead,#list tr.parent{display:none!important}
+#list tbody{
+  background:var(--card);
+  border:1px solid var(--glass-border);border-radius:20px;overflow:hidden;
+  box-shadow:0 18px 48px rgba(0,0,0,.42);
+}
+#list tr{position:relative;display:grid;grid-template-columns:auto 1fr;grid-template-areas:"name name" "size date";row-gap:3px;padding:13px 52px 13px 16px;cursor:pointer;transition:background-color .12s ease}
+#list tr:hover{background:var(--card-hover)}
+#list tr:active{background:var(--card-elevated)}
+#list tr.selected{background:rgba(10,132,255,.22)!important}
+#list tr:not(:last-child)::before{content:"";position:absolute;left:66px;right:0;bottom:0;height:.5px;background:var(--sep)}
+#list td{display:block;padding:0;border:0;background:none}
+#list td.link{grid-area:name;min-width:0}
+#list td.link a{display:flex;align-items:center;gap:14px;color:var(--text);text-decoration:none;font-size:16.5px;font-weight:500;min-height:28px}
+#list td.link a .nm{min-width:0;word-break:break-word;line-height:1.25;display:inline-flex;align-items:center;gap:7px}
+#list td.size,#list td.date{font-size:13px;color:var(--muted);white-space:nowrap}
+#list td.size{grid-area:size;padding-left:50px}
+#list td.size::after{content:"·";margin:0 6px}
+#list td.date{grid-area:date}
+#list tr.dir td.size{display:none}
+#list tr.dir td.date{grid-area:2/1/3/3;padding-left:50px}
+.git-dot{width:8.5px;height:8.5px;border-radius:50%;flex:none;display:inline-block}
+.git-dot.mod{background:#ffd60a;box-shadow:0 0 6px rgba(255,214,10,.65)}
+.git-dot.add{background:#30d158;box-shadow:0 0 6px rgba(48,209,88,.65)}
+.sel-chk{width:22px;height:22px;border-radius:50%;border:1.8px solid var(--muted);display:none;place-items:center;flex:none}
+body.select-mode .sel-chk{display:grid}
+#list tr.selected .sel-chk{background:var(--blue);border-color:var(--blue)}
+.sel-chk svg{width:13px;height:13px;opacity:0}
+#list tr.selected .sel-chk svg{opacity:1}
+.more-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);width:34px;height:34px;border-radius:50%;border:0;background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer;z-index:3}
+.more-btn:hover,.more-btn:active{background:rgba(255,255,255,.1);color:#5ac8fa}
+.more-btn svg{width:18px;height:18px;pointer-events:none}
+.ic{width:36px;height:36px;flex:none;border-radius:10px;display:grid;place-items:center;box-shadow:inset 0 0 0 .5px rgba(255,255,255,.22),0 4px 10px rgba(0,0,0,.25)}
+.ic svg{width:20px;height:20px}
+.ic.folder{background:none;box-shadow:none;border-radius:0}
+.ic.folder svg{width:36px;height:30px;filter:drop-shadow(0 3px 6px rgba(10,132,255,.28))}
+.t-img{background:linear-gradient(180deg,#ff7eb3,#ff2d92)}
+.t-vid{background:linear-gradient(180deg,#bf5af2,#8944e0)}
+.t-aud{background:linear-gradient(180deg,#ff5e6c,#ff2d55)}
+.t-pdf{background:linear-gradient(180deg,#ff6961,#ff3b30)}
+.t-doc{background:linear-gradient(180deg,#4da3ff,#0a6cff)}
+.t-xls{background:linear-gradient(180deg,#4cd964,#22b14c)}
+.t-ppt{background:linear-gradient(180deg,#ffb340,#ff8a00)}
+.t-txt{background:linear-gradient(180deg,#a1a1a6,#7c7c80)}
+.t-zip{background:linear-gradient(180deg,#c8a26b,#a07b45)}
+.t-cfg{background:linear-gradient(180deg,#64748b,#475569)}
+.t-code{background:linear-gradient(180deg,#38bdf8,#0284c7)}
+.t-md{background:linear-gradient(180deg,#818cf8,#4f46e5)}
+.t-hex{background:linear-gradient(180deg,#f59e0b,#d97706)}
+.t-file{background:linear-gradient(180deg,#7d8aa1,#5b6678)}
+</style>
+</head>
+<body>
+<div class="drop-zone">Drop files anywhere to upload</div>
+<div class="container">
+  <div id="nav" class="nav">
+    <a id="back" class="back" href="../">
+      <svg width="11" height="19" viewBox="0 0 12 20"><path d="M10 2L2 10l8 8" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Home</span>
+    </a>
+  </div>
+
+  <div class="hero">
+    <div class="hero-left">
+      <div class="app-badge">
+        <svg viewBox="0 0 36 36" fill="none">
+          <circle cx="18" cy="18" r="14" stroke="#a855f7" stroke-width="1.6" stroke-dasharray="3 2.5" stroke-opacity="0.75"/>
+          <circle cx="18" cy="4" r="2" fill="#38bdf8"/>
+          <circle cx="32" cy="18" r="2" fill="#30d158"/>
+          <circle cx="18" cy="32" r="2" fill="#a855f7"/>
+          <circle cx="4" cy="18" r="2" fill="#ff9f0a"/>
+          <rect x="9.5" y="10.5" width="17" height="6.5" rx="2" fill="#0f172a" stroke="#38bdf8" stroke-width="1.8"/>
+          <circle cx="12.8" cy="13.7" r="1" fill="#30d158"/>
+          <line x1="16" y1="13.7" x2="23" y2="13.7" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/>
+          <rect x="9.5" y="19" width="17" height="6.5" rx="2" fill="#0f172a" stroke="#0a84ff" stroke-width="1.8"/>
+          <circle cx="12.8" cy="22.2" r="1" fill="#38bdf8"/>
+          <line x1="16" y1="22.2" x2="23" y2="22.2" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="hero-titles">
+        <h2 id="title" class="title">OmniDrive Pro</h2>
+        <div class="subtitle">
+          <span id="subStat">Multi-Protocol Storage Hub</span>
+          <span id="gitRepoPill" class="git-repo-pill">⎇ <span id="gitBranchName">main</span></span>
+        </div>
+      </div>
+    </div>
+    <div class="hero-right">
+      <button id="btnSelectMode" class="select-toggle" type="button">Select</button>
+      <button id="btnLogout" class="logout-btn" type="button" title="Sign Out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="search-wrap">
+    <input id="q" class="search" type="search" placeholder="Search files or folders..." autocomplete="off">
+    <button id="clearBtn" class="clear-btn" type="button" aria-label="Clear search">
+      <svg width="16" height="16" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#636366"/><path d="M7 7l6 6M13 7l-6 6" stroke="#1c1c1e" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+
+  <div class="action-bar">
+    <button id="btnNewFile" class="act-btn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
+      <span>New File</span>
+    </button>
+    <button id="btnNewDir" class="act-btn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6M9 14h6"/></svg>
+      <span>New Folder</span>
+    </button>
+    <button id="btnUpload" class="act-btn primary" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+      <span>Upload</span>
+    </button>
+    <input id="fileInput" type="file" multiple style="display:none">
+  </div>
+
+  <div class="sys-bar">
+    <button id="btnSysTerm" class="act-btn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>
+      <span>Terminal</span>
+    </button>
+    <button id="btnSysDisk" class="act-btn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+      <span>Storage</span>
+    </button>
+    <button id="btnSysSnap" class="act-btn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+      <span>Quick Zip</span>
+    </button>
+    <button id="btnSysConnect" class="act-btn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      <span>Connect</span>
+    </button>
+    <button id="btnSysAudit" class="act-btn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+      <span>Security</span>
+    </button>
+  </div>
+
+  <div id="uploadProg" class="upload-prog">
+    <div id="uploadText">Uploading... 0%</div>
+    <div class="prog-track"><div id="progBar" class="prog-bar"></div></div>
+  </div>
+
+  <div class="toolbar">
+    <nav id="crumbs" class="crumbs" title="Tap current folder to copy path"></nav>
+    <div class="controls">
+      <div class="sort-pill">
+        <select id="sort" class="sort" aria-label="Sort">
+          <option value="C=N&amp;O=A">Name A–Z</option>
+          <option value="C=N&amp;O=D">Name Z–A</option>
+          <option value="C=M&amp;O=D">Newest</option>
+          <option value="C=M&amp;O=A">Oldest</option>
+          <option value="C=S&amp;O=D">Largest</option>
+        </select>
+      </div>
+      <button id="viewBtn" class="view-btn" type="button" title="Toggle Grid / List view">
+        <svg id="viewIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="fxi-raw">
