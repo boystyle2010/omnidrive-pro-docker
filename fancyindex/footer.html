@@ -1463,31 +1463,39 @@
   document.getElementById('btnSysConnect').addEventListener('click', function () {
     openSuiteModal(IC_GLOBE + '<span>Multi-Protocol Connect Hub</span>', '<div style="text-align:center;padding:24px;color:var(--muted)">Loading active protocols...</div>');
     fetch(apiUrl('protocols')).then(function (r) { return r.json(); }).then(function (info) {
-      var host = location.hostname || 'homeassistant.local';
-      var webdavUrl = ingressPrefix ? (location.protocol + '//' + host + ':8090/') : (location.origin + '/');
-      var smbUrl = 'smb://' + host + '/OmniDrive';
-      var winUnc = '\\\\' + host + '\\OmniDrive';
-      var sftpUrl = 'sftp://' + (info.default_user || 'admin') + '@' + host + ':2222/';
-      var ftpUrl = 'ftp://' + (info.default_user || 'admin') + '@' + host + ':2121/';
+      var webHost = location.hostname || 'localhost';
+      var lanHost = info.lan_ip || webHost;
+      var smbPort = info.smb_port || 445;
+      var sftpPort = info.sftp_port || 2222;
+      var ftpPort = info.ftp_port || 2121;
+      var extPort = info.ext_port || 8090;
+      var user = info.default_user || 'admin';
+
+      var webdavUrl = ingressPrefix ? (location.protocol + '//' + lanHost + ':' + extPort + '/') : (location.origin + '/');
+      var smbPortStr = (smbPort && smbPort !== 445) ? (':' + smbPort) : '';
+      var smbUrl = 'smb://' + lanHost + smbPortStr + '/OmniDrive';
+      var winUnc = '\\\\' + lanHost + (smbPort !== 445 ? ('@' + smbPort) : '') + '\\OmniDrive';
+      var sftpUrl = 'sftp://' + user + '@' + lanHost + ':' + sftpPort + '/';
+      var ftpUrl = 'ftp://' + user + '@' + lanHost + ':' + ftpPort + '/';
 
       suiteBody.innerHTML =
-        '<p style="margin:0 0 12px;color:var(--muted);font-size:13px;line-height:1.45">Tap any protocol card below to copy its connection address. All protocols share your same <b>users</b> credentials.</p>' +
+        '<p style="margin:0 0 12px;color:var(--muted);font-size:13px;line-height:1.45">Tap any protocol card below to copy its connection address. Direct TCP protocols (SMB/SFTP/FTP) use your LAN/Tailscale IP (<b>' + esc(lanHost) + '</b>), while WebDAV works over both LAN and Cloudflare Tunnel.</p>' +
         '<div class="snap-stack">' +
           '<button class="snap-card primary proto-copy" data-copy="' + esc(smbUrl) + '" type="button">' +
             '<div class="snap-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>' +
-            '<div class="snap-txt"><b>SMB / Samba • Port 445 (' + (info.smb ? 'Active' : 'Disabled') + ')</b><span>iOS Files ("Connect to Server"), macOS Finder &amp; Infuse: <code>' + esc(smbUrl) + '</code><br>Windows Explorer: <code>' + esc(winUnc) + '</code></span></div>' +
+            '<div class="snap-txt"><b>SMB / Samba • Port ' + esc(smbPort) + ' (' + (info.smb ? 'Active' : 'Disabled') + ')</b><span>macOS Finder, FE File Explorer &amp; Infuse: <code>' + esc(smbUrl) + '</code><br>Windows Explorer: <code>' + esc(winUnc) + '</code></span></div>' +
           '</button>' +
           '<button class="snap-card proto-copy" data-copy="' + esc(sftpUrl) + '" type="button">' +
             '<div class="snap-ic">' + IC_TERM + '</div>' +
-            '<div class="snap-txt"><b>SFTP (SSH File Transfer) • Port 2222 (' + (info.sftp ? 'Active' : 'Disabled') + ')</b><span>Termius, Cyberduck, FileZilla, FE File Explorer: <code>' + esc(sftpUrl) + '</code></span></div>' +
+            '<div class="snap-txt"><b>SFTP (SSH File Transfer) • Port ' + esc(sftpPort) + ' (' + (info.sftp ? 'Active' : 'Disabled') + ')</b><span>Termius, Cyberduck, FileZilla, FE File Explorer: <code>' + esc(sftpUrl) + '</code></span></div>' +
           '</button>' +
           '<button class="snap-card proto-copy" data-copy="' + esc(ftpUrl) + '" type="button">' +
             '<div class="snap-ic">' + IC_SHARE + '</div>' +
-            '<div class="snap-txt"><b>FTP Server • Port 2121 (' + (info.ftp ? 'Active' : 'Disabled') + ')</b><span>Standard FTP Clients &amp; Network Scanners: <code>' + esc(ftpUrl) + '</code></span></div>' +
+            '<div class="snap-txt"><b>FTP Server • Port ' + esc(ftpPort) + ' (' + (info.ftp ? 'Active' : 'Disabled') + ')</b><span>Standard FTP Clients &amp; Network Scanners: <code>' + esc(ftpUrl) + '</code></span></div>' +
           '</button>' +
           '<button class="snap-card proto-copy" data-copy="' + esc(webdavUrl) + '" type="button">' +
             '<div class="snap-ic">' + IC_GLOBE + '</div>' +
-            '<div class="snap-txt"><b>WebDAV / HTTPS • Port 8090 (Active)</b><span>Cloudflare Tunnel &amp; WebDAV Clients: <code>' + esc(webdavUrl) + '</code></span></div>' +
+            '<div class="snap-txt"><b>WebDAV / HTTPS • Remote &amp; LAN (Active)</b><span>Cloudflare Tunnel &amp; WebDAV Clients: <code>' + esc(webdavUrl) + '</code></span></div>' +
           '</button>' +
         '</div>';
 
