@@ -1,0 +1,71 @@
+name: Auto-Update Alpine & Nginx Base
+
+on:
+  schedule:
+    # Chạy tự động lúc 06:00 UTC mỗi ngày
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Latest Alpine & Nginx Versions
+        id: check
+        run: |
+          set -e
+          # 1. Đọc phiên bản hiện tại trong Dockerfile
+          CUR_ALPINE=$(grep -E '^ARG ALPINE_VERSION=' Dockerfile | cut -d'=' -f2 | tr -d '" ')
+          CUR_NGINX=$(grep -E '^ARG NGINX_VERSION=' Dockerfile | cut -d'=' -f2 | tr -d '" ')
+          CUR_APP=$(grep -E '^ARG APP_VERSION=' Dockerfile | cut -d'=' -f2 | tr -d '" ')
+
+          echo "Current -> Alpine: ${CUR_ALPINE} | Nginx: ${CUR_NGINX} | App: ${CUR_APP}"
+
+          # 2. Lấy nhánh Alpine Stable mới nhất từ Alpine Official Releases API
+          LATEST_ALPINE=$(curl -fsSL "https://alpinelinux.org/releases.json" | jq -r '.release_branches[] | select(.rel_branch | test("^v[0-9]+\\.[0-9]+$")) | .rel_branch' | head -n1 | sed 's/^v//')
+          if [ -z "$LATEST_ALPINE" ]; then
+            LATEST_ALPINE="$CUR_ALPINE"
+          fi
+
+          # 3. Khởi chạy container Alpine tạm thời để lấy đúng phiên bản gói nginx mới nhất trên nhánh đó
+          LATEST_NGINX=$(docker run --rm "alpine:${LATEST_ALPINE}" sh -c "apk update >/dev/null 2>&1 && apk info -v nginx 2>/dev/null | sed 's/^nginx-//'" | tr -d '\r')
+          if [ -z "$LATEST_NGINX" ]; then
+            LATEST_NGINX="$CUR_NGINX"
+          fi
+
+          echo "Latest  -> Alpine: ${LATEST_ALPINE} | Nginx: ${LATEST_NGINX}"
+
+          if [ "$CUR_ALPINE" != "$LATEST_ALPINE" ] || [ "$CUR_NGINX" != "$LATEST_NGINX" ]; then
+            # Tự động tăng số patch version (ví dụ 1.0.28 -> 1.0.29)
+            BASE_VER=$(echo "$CUR_APP" | cut -d. -f1-2)
+            PATCH_VER=$(echo "$CUR_APP" | cut -d. -f3)
+            NEW_APP="${BASE_VER}.$((PATCH_VER + 1))"
+
+            sed -i "s/^ARG ALPINE_VERSION=.*/ARG ALPINE_VERSION=${LATEST_ALPINE}/" Dockerfile
+            sed -i "s/^ARG NGINX_VERSION=.*/ARG NGINX_VERSION=${LATEST_NGINX}/" Dockerfile
+            sed -i "s/^ARG APP_VERSION=.*/ARG APP_VERSION=${NEW_APP}/" Dockerfile
+
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            echo "new_alpine=${LATEST_ALPINE}" >> "$GITHUB_OUTPUT"
+            echo "new_nginx=${LATEST_NGINX}" >> "$GITHUB_OUTPUT"
+            echo "new_app=${NEW_APP}" >> "$GITHUB_OUTPUT"
+          else
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit & Push Updated Base Versions
+        if: steps.check.outputs.updated == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Dockerfile
+          git commit -m "chore(deps): bump Alpine to ${{ steps.check.outputs.new_alpine }} & Nginx to ${{ steps.check.outputs.new_nginx }} (v${{ steps.check.outputs.new_app }})"
+          git push
