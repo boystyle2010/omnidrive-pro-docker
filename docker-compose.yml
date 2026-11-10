@@ -1,0 +1,29 @@
+services:
+  omnidrive-pro:
+    image: ghcr.io/boystyle2010/omnidrive-pro:latest
+    container_name: omnidrive-pro
+    restart: unless-stopped
+    environment:
+      - TZ=America/Denver
+      - OMNI_USER=admin
+      - OMNI_PASS=changeme_strong_password
+      - SMB_ENABLED=true
+      - SFTP_ENABLED=true
+      - FTP_ENABLED=true
+      - FANCY_UI=true
+      - SHOW_DOTFILES=true
+      # Điền IP LAN của máy chủ Linux để FTP Passive Mode hoạt động mượt qua mạng LAN
+      - FTP_PASV_ADDRESS=192.168.1.100
+    ports:
+      - "8090:8090"             # Web UI, WebDAV & Share Links
+      - "445:445"               # SMB / Samba Server
+      - "2222:2222"             # SFTP Server
+      - "2121:2121"             # FTP Control Port
+      - "21000-21002:21000-21002" # FTP Passive Data Ports
+    volumes:
+      # Lưu cấu hình options.json, nhật ký bảo mật audit.jsonl và token Share Links
+      - ./data:/data
+      # Các thư mục dữ liệu bạn muốn quản lý (có thể mount thêm tùy ý và khai báo trong ./data/options.json)
+      - ./storage:/storage
+      - ./backup:/backup
+      - ./ssl:/ssl
