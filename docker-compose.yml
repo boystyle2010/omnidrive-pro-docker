@@ -1,12 +1,17 @@
+name: omnidrive-pro
+
 services:
   omnidrive-pro:
     image: ghcr.io/boystyle2010/omnidrive-pro:latest
     container_name: omnidrive-pro
     restart: unless-stopped
     labels:
-      icon: "https://raw.githubusercontent.com/boystyle2010/omnidrive-pro/main/icon.png"
+      icon: "https://raw.githubusercontent.com/boystyle2010/omnidrive-pro-docker/main/icon.png"
+      name: "OmniDrive Pro"
+      web: "8099"
     environment:
       - TZ=America/Denver
+      # !!! CHANGE THIS PASSWORD before exposing the service !!!
       - OMNI_USER=admin
       - OMNI_PASS=changeme_strong_password
       - SMB_ENABLED=true
@@ -14,16 +19,19 @@ services:
       - FTP_ENABLED=true
       - FANCY_UI=true
       - SHOW_DOTFILES=true
-      # Điền IP LAN của máy chủ Linux để FTP Passive Mode hoạt động mượt
-      - FTP_PASV_ADDRESS=192.168.1.100
+      # FTP Passive Mode only: uncomment and set this to the LAN IP of the
+      # machine running Docker (find it with: hostname -I).
+      # Without it, FTP clients may hang when listing folders.
+      # Not needed for Web UI, WebDAV, SMB or SFTP.
+      # - FTP_PASV_ADDRESS=192.168.1.100
     ports:
-      - "8099:8090"               # Web UI, WebDAV & Share Links[cite: 2]
-      - "445:445"                 # SMB / Samba Server[cite: 2]
-      - "2222:2222"               # SFTP Server[cite: 2]
-      - "2121:2121"               # FTP Control Port[cite: 2]
-      - "21000-21002:21000-21002" # FTP Passive Data Ports[cite: 2]
+      - "8099:8090"               # Web UI, WebDAV & Share Links
+      - "445:445"                 # SMB / Samba
+      - "2222:2222"               # SFTP
+      - "2121:2121"               # FTP control port
+      - "21000-21002:21000-21002" # FTP passive data ports
     volumes:
-      # 1. Nơi lưu cấu hình, audit log & share links của OmniDrive Pro
+      # 1. OmniDrive Pro config, audit log & share links
       - ./data:/data
       - ./ssl:/ssl
       - ./backup:/backup
@@ -31,13 +39,29 @@ services:
       - ./media:/media
       - ./share:/share
 
-      # 2. QUAN TRỌNG: Gắn toàn bộ gốc "/" của máy chủ Linux vào "/host_system"
-      # Giúp bạn xem và sửa được 100% mọi file trên máy chủ
+      # 2. WARNING: mounts the ENTIRE host filesystem as /host_root
+      #    (read/write). Lets you browse and edit every file on the host.
+      #    Remove this line if you do not need full host access.
       - /:/host_root:rw
 
-      # 3. Các lối tắt (Shortcut) hiển thị ngay ngoài màn hình chính để vào nhanh:
+      # 3. Optional shortcuts shown on the home screen.
+      #    Adjust or remove paths that do not exist on your system.
       - /DATA:/mnt/DATA
       - /home:/mnt/home
       - /etc:/mnt/etc
       - /opt:/mnt/opt
       - /var/log:/mnt/var_log
+    x-casaos:
+      title:
+        en_us: OmniDrive Pro
+      icon: https://raw.githubusercontent.com/boystyle2010/omnidrive-pro-docker/main/icon.png
+
+x-casaos:
+  title:
+    en_us: OmniDrive Pro
+  tagline:
+    en_us: Multi-protocol storage hub
+  icon: https://raw.githubusercontent.com/boystyle2010/omnidrive-pro-docker/main/icon.png
+  main: omnidrive-pro
+  index: /
+  port_map: "8099"
