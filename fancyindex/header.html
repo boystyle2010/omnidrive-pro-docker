@@ -13,14 +13,17 @@
     document.documentElement.classList.add('standalone-web');
   }
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/ace.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/ext-searchbox.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
-<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js" defer></script>
+<!-- Front-end libraries are self-hosted (downloaded at image build time, see Dockerfile).
+     No third-party CDN is contacted at runtime: faster, works offline, no supply-chain risk. -->
+<script src="/.fancyindex/vendor/ace/ace.js" defer></script>
+<script src="/.fancyindex/vendor/ace/ext-searchbox.js" defer></script>
+<script src="/.fancyindex/vendor/marked.min.js" defer></script>
+<script src="/.fancyindex/vendor/purify.min.js" defer></script>
+<script src="/.fancyindex/vendor/js-yaml.min.js" defer></script>
+<script src="/.fancyindex/vendor/jszip.min.js" defer></script>
+<script src="/.fancyindex/vendor/pdf.min.js" defer></script>
+<link rel="stylesheet" href="/.fancyindex/vendor/xterm.min.css">
+<script src="/.fancyindex/vendor/xterm.min.js" defer></script>
 <style>
 :root {
   --bg:#0b162c;
