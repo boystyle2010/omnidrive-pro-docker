@@ -350,7 +350,7 @@ git config --system --add safe.directory '*' || true
 # 9. Tạo Python Backend API + Hybrid Auth Engine
 cat << 'PYEOF' > /usr/local/bin/wpro_api.py
 #!/usr/bin/env python3
-import os, sys, json, time, hmac, hashlib, base64, shutil, secrets, tempfile, subprocess, urllib.parse
+import os, sys, json, time, hmac, hashlib, base64, shutil, secrets, tempfile, subprocess, threading, urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 from datetime import datetime
@@ -376,11 +376,39 @@ def get_config():
         return {}
 
 def verify_credentials(username, password):
+    # Constant-time comparison; always walks every user so timing does not leak which one matched.
     cfg = get_config()
+    ok = False
     for u in cfg.get("users", []):
-        if u.get("username") == username and u.get("password") == password:
-            return True
-    return False
+        user_ok = hmac.compare_digest(str(u.get("username", "")).encode("utf-8"), str(username).encode("utf-8"))
+        pass_ok = hmac.compare_digest(str(u.get("password", "")).encode("utf-8"), str(password).encode("utf-8"))
+        if user_ok and pass_ok:
+            ok = True
+    return ok
+
+# --- Login brute-force protection (per client IP + username) ---
+LOGIN_FAILS = {}
+LOGIN_LOCK = threading.Lock()
+MAX_LOGIN_FAILS = 10
+LOGIN_WINDOW = 300  # seconds
+
+def login_locked(key):
+    now = time.time()
+    with LOGIN_LOCK:
+        recent = [t for t in LOGIN_FAILS.get(key, []) if now - t < LOGIN_WINDOW]
+        LOGIN_FAILS[key] = recent
+        return len(recent) >= MAX_LOGIN_FAILS
+
+def login_failed(key):
+    with LOGIN_LOCK:
+        LOGIN_FAILS.setdefault(key, []).append(time.time())
+
+def login_ok(key):
+    with LOGIN_LOCK:
+        LOGIN_FAILS.pop(key, None)
+
+# Folders larger than this cannot be shared as a zip (protects the host disk / CPU).
+SHARE_ZIP_MAX = int(os.environ.get("SHARE_ZIP_MAX_MB", "2048")) * 1024 * 1024
 
 def create_session_token(username, ttl=2592000):
     exp = int(time.time()) + ttl
@@ -445,6 +473,14 @@ def dir_size_du(path):
         return int(out.split()[0]) * 1024
     except Exception:
         return 0
+
+def dir_size_bytes(path):
+    # Like dir_size_du but returns None when the size cannot be determined (timeout / error).
+    try:
+        out = subprocess.check_output(["du", "-sk", path], stderr=subprocess.DEVNULL, timeout=8).decode()
+        return int(out.split()[0]) * 1024
+    except Exception:
+        return None
 
 class WProHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -540,6 +576,13 @@ class WProHandler(BaseHTTPRequestHandler):
             try:
                 target = os.path.realpath(safe_resolve(info["path"]))
                 if os.path.isdir(target):
+                    dsz = dir_size_bytes(target)
+                    if dsz is None or dsz > SHARE_ZIP_MAX:
+                        self.send_response(413)
+                        self.send_header("Content-Type", "text/plain; charset=utf-8")
+                        self.end_headers()
+                        self.wfile.write(b"Folder is too large to download as a zip. Share individual files instead.")
+                        return
                     folder_name = os.path.basename(target.rstrip("/")) or "archive"
                     tmp_fd, tmp_zip = tempfile.mkstemp(suffix=".zip")
                     os.close(tmp_fd)
@@ -682,13 +725,26 @@ class WProHandler(BaseHTTPRequestHandler):
             upass = body.get("password", "")
             remember = bool(body.get("remember", True))
             ip = self.headers.get("X-Real-IP", self.client_address[0])
+            lock_key = ip + "|" + uname.lower()
+            if login_locked(lock_key):
+                append_audit(uname or "unknown", "LOGIN_LOCKED", "/", 429, ip)
+                self.send_json({"ok": False, "error": "Too many failed attempts. Try again in a few minutes."}, 429)
+                return
             if verify_credentials(uname, upass):
+                login_ok(lock_key)
                 ttl = 2592000 if remember else 86400
                 tok = create_session_token(uname, ttl)
-                cookie_val = f"wpro_sess={tok}; Path=/; Max-Age={ttl}; HttpOnly; SameSite=Lax"
+                # Mark the cookie Secure when the browser is on HTTPS (native SSL or TLS-terminating proxy / tunnel).
+                is_https = (self.headers.get("X-Forwarded-Proto", "").lower() == "https"
+                            or "https" in self.headers.get("CF-Visitor", "").lower()
+                            or bool(get_config().get("ssl")))
+                secure = "; Secure" if is_https else ""
+                cookie_val = f"wpro_sess={tok}; Path=/; Max-Age={ttl}; HttpOnly; SameSite=Lax{secure}"
                 append_audit(uname, "WEB_LOGIN", "/", 200, ip)
                 self.send_json({"ok": True, "user": uname}, 200, {"Set-Cookie": cookie_val})
             else:
+                login_failed(lock_key)
+                time.sleep(0.4)  # slow down guessing
                 append_audit(uname or "unknown", "LOGIN_FAIL", "/", 401, ip)
                 self.send_json({"ok": False, "error": "Invalid username or password"}, 401)
             return
@@ -872,6 +928,17 @@ http {
         server_name _;
 
         add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+
+        # Self-hosted front-end libraries: cache + gzip (the server-wide no-store header would
+        # otherwise force a ~1 MB re-download of the code editor on every page load).
+        location ^~ /.fancyindex/vendor/ {
+            alias /usr/share/nginx/fancyindex/vendor/;
+            access_log off;
+            gzip on;
+            gzip_types application/javascript text/css;
+            gzip_min_length 1024;
+            add_header Cache-Control "public, max-age=604800" always;
+        }
 
         location ^~ /.fancyindex/ {
             alias /usr/share/nginx/fancyindex/;
