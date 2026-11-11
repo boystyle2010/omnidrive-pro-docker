@@ -270,6 +270,7 @@ On first boot, OmniDrive Pro automatically generates `/data/options.json` from y
 | `FTP_PASV_ADDRESS`| *(empty)* | Host LAN IP address for FTP Passive data connections (`21000-21002`). **Required for FTP only.** Use the IP your FTP client connects to (LAN IP, or Tailscale IP when connecting over Tailscale). Give the server a static IP / DHCP reservation so it does not change. |
 | `MAX_UPLOAD_SIZE` | `0` | Max upload size (`0` = unlimited). |
 | `SHOW_DOTFILES` | `true` | Show hidden files and folders starting with `.` (e.g., `.env`, `.gitignore`). |
+| `SHARE_ZIP_MAX_MB` | `2048` | Maximum size (MB) of a folder that can be downloaded as a zip through a share link. Larger folders are refused (protects host disk and CPU). |
 | `SSL` | `false` | Set to `true` to enable native HTTPS using `/ssl/fullchain.pem` and `/ssl/privkey.pem`. |
 
 > **Multi-User & Custom Share Configuration:** After the first run, you can edit `/data/options.json` directly (even from inside OmniDrive Pro's own Code Editor!) to add multiple user accounts or custom read-only share rules, then restart the container.
@@ -290,6 +291,10 @@ OmniDrive Pro is powerful by design, so please harden it before exposing it beyo
 - **Share links (`/s/<token>`) are public** to anyone who has the URL until they expire. Use the shortest expiry that works and revoke links you no longer need.
 - **Only expose the protocols you use.** Set `SMB_ENABLED`, `SFTP_ENABLED` or `FTP_ENABLED` to `false` and remove their `ports:` lines when not needed. Plain FTP is **unencrypted** — use it on trusted LANs only; prefer SFTP or SMB.
 - **Back up before editing** critical files (use the **Quick Zip** button).
+- **Login is rate-limited:** after 10 failed attempts from the same IP + username, login is blocked for 5 minutes. The session cookie is marked `Secure` automatically when you browse over HTTPS (native SSL, reverse proxy or Cloudflare Tunnel).
+- **Passwords are stored in plain text** in `/data/options.json` (required to create the SMB/SFTP/FTP system accounts). Keep `./data` private.
+- **No third-party scripts at runtime:** all front-end libraries are downloaded when the image is built and served from the container itself.
+- **Do not store files at the Root screen.** Root is rebuilt on every container start. Open a folder (`storage`, `media`, `share`, `host_system`…) first — the Web UI blocks uploads and new files at Root to protect you from data loss.
 
 ---
 
