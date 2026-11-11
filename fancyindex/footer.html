@@ -466,7 +466,38 @@
     var t = (m && MAP[m[1].toLowerCase()]) || ['file', 'doc'];
     return '<span class="ic t-' + t[0] + '"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + GL[t[1]] + '</svg></span>';
   }
-  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  // Escape for BOTH text and attribute contexts (quotes included) to prevent XSS via file names.
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+  // Safe storage wrappers: never throw when storage is blocked (private mode / blocked cookies).
+  function lsGet(k, d) { try { var v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function ssGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+  function ssSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} }
+  function ssDel(k) { try { sessionStorage.removeItem(k); } catch (e) {} }
+  // Safe Markdown rendering: always sanitized, never raw HTML from user files.
+  function renderMarkdownSafe(raw) {
+    if (window.marked && window.DOMPurify) return DOMPurify.sanitize(marked.parse(raw));
+    return '<pre>' + esc(raw) + '</pre>';
+  }
+  var MAX_EDIT_BYTES = 5 * 1024 * 1024, MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
+  function headSize(url) {
+    return fetch(url, { method: 'HEAD', credentials: 'same-origin' }).then(function (r) {
+      var n = parseInt(r.headers.get('Content-Length') || '0', 10);
+      return isNaN(n) ? 0 : n;
+    }).catch(function () { return 0; });
+  }
+  function validName(n) {
+    n = (n || '').trim();
+    return !!n && n !== '.' && n !== '..' && n.indexOf('/') === -1 && n.indexOf('\\') === -1;
+  }
+  // Files created directly at Root are NOT persistent (Root is rebuilt on every container start).
+  function requireFolder() {
+    if (typeof segs !== 'undefined' && !segs.length) {
+      showToast('Open a folder first — files at Root are not saved');
+      return false;
+    }
+    return true;
+  }
   function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
   function up(n) { return n > 0 ? new Array(n + 1).join('../') : './'; }
   function fmtBytes(b) {
@@ -627,7 +658,12 @@
   // không so khớp host nên không lỗi 502 khi chạy sau Cloudflare Tunnel / reverse proxy.
   function buildDestinationHeader(targetInternalPath) { return targetInternalPath; }
   function reportDavError(label, r) {
-    showToast(label + ' failed (' + (r && r.status ? r.status : 'network') + ')');
+    var st = r && r.status ? r.status : 0, why = '';
+    if (st === 412) why = ' — a file with that name already exists';
+    else if (st === 409) why = ' — target folder does not exist or is read-only';
+    else if (st === 403 || st === 401) why = ' — permission denied';
+    else if (st === 502 || st === 504) why = ' — check your reverse proxy';
+    showToast(label + ' failed (' + (st || 'network') + ')' + why);
   }
 
   // 3. Tiêu đề, Back & Breadcrumbs
@@ -766,7 +802,7 @@
   var minimapWrap = document.getElementById('minimapWrap'), minimapCanvas = document.getElementById('minimapCanvas'), minimapVp = document.getElementById('minimapVp');
   var aceEditor = null, currentEditUrl = '', currentExt = '', isMarkdownFile = false, mdPreviewActive = false, minimapEnabled = true;
   var originalContent = '', isDirty = false, isLoadingContent = false;
-  var editorFontSize = parseInt(localStorage.getItem('wpro_fsize') || '14', 10);
+  var editorFontSize = parseInt(lsGet('wpro_fsize', '14'), 10) || 14;
 
   function updateDirtyState() {
     if (isLoadingContent || !currentEditUrl) return;
@@ -862,7 +898,7 @@
 
   function initAce() {
     if (aceEditor || !window.ace) return;
-    ace.config.set('basePath', 'https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/');
+    ace.config.set('basePath', ingressPrefix + '/.fancyindex/vendor/ace/');
     aceEditor = ace.edit('aceContainer');
     aceEditor.setTheme('ace/theme/one_dark');
     aceEditor.setOptions({
@@ -916,6 +952,8 @@
   function setEditorContent(val, ext) {
     isLoadingContent = true;
     initAce();
+    edArea.readOnly = false;
+    if (aceEditor) aceEditor.setReadOnly(false);
     if (aceEditor) {
       aceContainer.style.display = 'block'; edArea.style.display = 'none';
       minimapWrap.classList.toggle('show', minimapEnabled);
@@ -943,7 +981,7 @@
     edMdToggle.textContent = mdPreviewActive ? 'Edit Code' : 'Preview';
     if (mdPreviewActive) {
       var rawMd = getEditorContent();
-      mdView.innerHTML = window.marked ? marked.parse(rawMd) : '<pre>' + esc(rawMd) + '</pre>';
+      mdView.innerHTML = renderMarkdownSafe(rawMd);
       mdView.style.display = 'block'; aceContainer.style.display = 'none'; minimapWrap.classList.remove('show'); edArea.style.display = 'none';
     } else {
       mdView.style.display = 'none';
@@ -985,10 +1023,10 @@
       '<div style="overflow:auto;max-width:100%;max-height:78vh;display:grid;place-items:center"><canvas id="pdfCanvas"></canvas></div>';
 
     if (!window.pdfjsLib) {
-      edPreview.innerHTML = '<iframe src="' + fullUrl + '" style="width:100%;height:82vh;border:0;border-radius:8px;background:#fff"></iframe>';
+      edPreview.innerHTML = '<iframe src="' + esc(fullUrl) + '" style="width:100%;height:82vh;border:0;border-radius:8px;background:#fff"></iframe>';
       return;
     }
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = ingressPrefix + '/.fancyindex/vendor/pdf.worker.min.js';
     var pdfDoc = null, pageNum = 1, scale = 1.35;
     var canvas = document.getElementById('pdfCanvas'), ctx = canvas.getContext('2d'), info = document.getElementById('pdfPageInfo');
 
@@ -1003,7 +1041,7 @@
     pdfjsLib.getDocument(fullUrl).promise.then(function (doc) {
       pdfDoc = doc; renderPage(pageNum);
     }).catch(function () {
-      edPreview.innerHTML = '<iframe src="' + fullUrl + '" style="width:100%;height:82vh;border:0;border-radius:8px;background:#fff"></iframe>';
+      edPreview.innerHTML = '<iframe src="' + esc(fullUrl) + '" style="width:100%;height:82vh;border:0;border-radius:8px;background:#fff"></iframe>';
     });
 
     document.getElementById('pdfPrev').addEventListener('click', function () { if (pdfDoc && pageNum > 1) { pageNum--; renderPage(pageNum); } });
@@ -1057,7 +1095,11 @@
     edSubbar.style.display = 'none'; edSave.style.display = 'none'; edMdToggle.style.display = 'none'; yamlAlert.classList.remove('show');
     edPreview.style.display = 'flex'; edPreview.innerHTML = '<div style="color:#8b949e">Reading archive contents...</div>';
 
-    fetch(buildWebdavUrl(href), { credentials: 'same-origin' }).then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
+    var archUrl = buildWebdavUrl(href);
+    headSize(archUrl).then(function (size) {
+      if (size > MAX_ARCHIVE_BYTES) throw new Error('archive is ' + fmtBytes(size) + ' — too large to inspect in the browser, download it instead');
+      return fetch(archUrl, { credentials: 'same-origin' });
+    }).then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
       if (ext === 'zip' && window.JSZip) {
         return JSZip.loadAsync(buf).then(function (zip) {
           var items = [];
@@ -1090,15 +1132,15 @@
     edPreview.style.display = 'flex';
     var fullUrl = buildWebdavUrl(href);
     if (type === 'img') {
-      edPreview.innerHTML = '<img src="' + fullUrl + '" alt="' + esc(label) + '">';
+      edPreview.innerHTML = '<img src="' + esc(fullUrl) + '" alt="' + esc(label) + '">';
       return;
     }
     var mediaBox = type === 'vid'
-      ? '<video id="proMediaEl" src="' + fullUrl + '" controls autoplay playsinline></video>'
+      ? '<video id="proMediaEl" src="' + esc(fullUrl) + '" controls autoplay playsinline></video>'
       : '<div class="ios-player-card">' +
           '<div class="ios-art-big"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>' +
           '<div class="ios-track-title">' + esc(label) + '</div>' +
-          '<audio id="proMediaEl" src="' + fullUrl + '" controls autoplay></audio>' +
+          '<audio id="proMediaEl" src="' + esc(fullUrl) + '" controls autoplay></audio>' +
         '</div>';
 
     var speedBtns = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(function (s) {
@@ -1156,6 +1198,7 @@
       return;
     }
 
+    function loadEditorText() {
     var sep = currentEditUrl.indexOf('?') === -1 ? '?' : '&';
     fetch(currentEditUrl + sep + '_ts=' + Date.now(), {
       cache: 'no-store',
@@ -1167,6 +1210,27 @@
     }).then(function (txt) {
       edSave.disabled = false;
       setEditorContent(txt, ext);
+      // Binary guard: decoding binary data as UTF-8 is lossy, so saving would corrupt the file.
+      if (txt.indexOf('\u0000') !== -1 || txt.indexOf('�') !== -1) {
+        edSave.disabled = true; edArea.readOnly = true;
+        if (aceEditor) aceEditor.setReadOnly(true);
+        edStatus.textContent = 'Binary file • read-only';
+        showIosDialog({
+          type: 'warn',
+          title: 'Binary File Detected',
+          message: '<b>' + esc(label) + '</b> does not look like a text file. Saving it from the text editor would corrupt it, so it was opened read-only.',
+          buttons: [
+            { label: 'Hex Inspector', role: 'primary', onClick: function () { openHexViewer(label, href); } },
+            { label: 'Edit Anyway (risky)', role: 'danger', onClick: function () {
+              edSave.disabled = false; edArea.readOnly = false;
+              if (aceEditor) aceEditor.setReadOnly(false);
+              edStatus.textContent = 'Editing binary — save at your own risk';
+            }},
+            { label: 'Close', role: 'cancel', onClick: function () { forceCloseEditor(); } }
+          ]
+        });
+        return;
+      }
       var lineCount = txt ? txt.split('\n').length : 1;
       edStatus.textContent = 'UTF-8 • ' + lineCount + (lineCount === 1 ? ' line' : ' lines') + (txt === '' ? ' (Empty file)' : '');
       if (isMarkdownFile && txt.trim().length > 0) toggleMarkdownPreview(true);
@@ -1182,6 +1246,25 @@
           { label: 'Close Editor', role: 'cancel', onClick: function () { forceCloseEditor(); } }
         ]
       });
+    });
+    }
+
+    // Size guard: huge files freeze the browser tab and risk data loss on save.
+    headSize(currentEditUrl).then(function (size) {
+      if (size > MAX_EDIT_BYTES) {
+        edSave.disabled = true; edStatus.textContent = 'Too large to edit';
+        showIosDialog({
+          type: 'warn',
+          title: 'File Too Large to Edit',
+          message: '<b>' + esc(label) + '</b> is ' + fmtBytes(size) + '. Editing files over ' + fmtBytes(MAX_EDIT_BYTES) + ' in the browser can freeze the page or corrupt the file.',
+          buttons: [
+            { label: 'Hex Inspector', role: 'primary', onClick: function () { openHexViewer(label, href); } },
+            { label: 'Close', role: 'cancel', onClick: function () { forceCloseEditor(); } }
+          ]
+        });
+        return;
+      }
+      loadEditorText();
     });
   }
 
@@ -1288,13 +1371,13 @@
   document.getElementById('edComment').addEventListener('click', function () { if (aceEditor) aceEditor.toggleCommentLines(); });
   document.getElementById('edFontUp').addEventListener('click', function () {
     editorFontSize = Math.min(24, editorFontSize + 1);
-    localStorage.setItem('wpro_fsize', editorFontSize);
+    lsSet('wpro_fsize', editorFontSize);
     if (aceEditor) aceEditor.setFontSize(editorFontSize + 'px');
     showToast('Font size: ' + editorFontSize + 'px');
   });
   document.getElementById('edFontDown').addEventListener('click', function () {
     editorFontSize = Math.max(10, editorFontSize - 1);
-    localStorage.setItem('wpro_fsize', editorFontSize);
+    lsSet('wpro_fsize', editorFontSize);
     if (aceEditor) aceEditor.setFontSize(editorFontSize + 'px');
     showToast('Font size: ' + editorFontSize + 'px');
   });
@@ -1635,6 +1718,7 @@
 
   // 8. Tạo File, Tạo Folder, Upload, Kéo-Thả & Dán Clipboard
   document.getElementById('btnNewFile').addEventListener('click', function () {
+    if (!requireFolder()) return;
     showIosDialog({
       type: 'info',
       title: 'Create New File',
@@ -1656,6 +1740,7 @@
   });
 
   document.getElementById('btnNewDir').addEventListener('click', function () {
+    if (!requireFolder()) return;
     showIosDialog({
       type: 'info',
       title: 'Create New Folder',
@@ -1679,15 +1764,30 @@
   var fileInput = document.getElementById('fileInput'), uploadProg = document.getElementById('uploadProg'), uploadText = document.getElementById('uploadText'), progBar = document.getElementById('progBar');
   function uploadFileList(files) {
     if (!files || !files.length) return;
-    uploadProg.classList.add('show'); var idx = 0;
+    if (!requireFolder()) return;
+    uploadProg.classList.add('show'); var idx = 0, failed = [];
     function next() {
-      if (idx >= files.length) { showToast('Uploaded ' + files.length + ' file(s)!'); setTimeout(function () { location.reload(); }, 400); return; }
+      if (idx >= files.length) {
+        uploadProg.classList.remove('show');
+        if (failed.length) {
+          showToast('Uploaded ' + (files.length - failed.length) + ', FAILED: ' + failed.join(', '));
+          setTimeout(function () { location.reload(); }, 3500);
+        } else {
+          showToast('Uploaded ' + files.length + ' file(s)!');
+          setTimeout(function () { location.reload(); }, 400);
+        }
+        return;
+      }
       var f = files[idx++], xhr = new XMLHttpRequest();
       xhr.open('PUT', buildWebdavUrl(encodeURIComponent(f.name)), true);
       xhr.upload.onprogress = function (e) {
         if (e.lengthComputable) { var pct = Math.round((e.loaded / e.total) * 100); uploadText.textContent = 'Uploading ' + f.name + ' (' + pct + '%)'; progBar.style.width = pct + '%'; }
       };
-      xhr.onload = next; xhr.onerror = function () { showToast('Failed uploading ' + f.name); next(); };
+      xhr.onload = function () {
+        if (xhr.status < 200 || xhr.status >= 300) failed.push(f.name + ' (HTTP ' + xhr.status + ')');
+        next();
+      };
+      xhr.onerror = function () { failed.push(f.name + ' (network)'); next(); };
       xhr.send(f);
     }
     next();
@@ -1784,9 +1884,9 @@
       defaultValue: 'copy_' + item.name,
       buttons: [
         { label: 'Duplicate', role: 'primary', onClick: function (dupName) {
-          if (!dupName || !dupName.trim()) return;
+          if (!validName(dupName)) { showToast('Invalid name'); return; }
           var destInternal = p + encodeURIComponent(dupName.trim()) + (item.isDir ? '/' : '');
-          fetch(buildWebdavUrl(item.href), { method: 'COPY', credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'T' } }).then(function (r) {
+          fetch(buildWebdavUrl(item.href), { method: 'COPY', credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'F' } }).then(function (r) {
             if (r.ok || r.status === 201 || r.status === 204) { showToast('Duplicated'); setTimeout(function () { location.reload(); }, 400); }
             else { reportDavError('Duplicate', r); }
           }).catch(function () { reportDavError('Duplicate', null); });
@@ -1805,9 +1905,10 @@
       defaultValue: item.name,
       buttons: [
         { label: 'Rename', role: 'primary', onClick: function (newName) {
-          if (!newName || !newName.trim() || newName.trim() === item.name) return;
+          if (newName && newName.trim() === item.name) return;
+          if (!validName(newName)) { showToast('Invalid name'); return; }
           var destInternal = p + encodeURIComponent(newName.trim()) + (item.isDir ? '/' : '');
-          fetch(buildWebdavUrl(item.href), { method: 'MOVE', credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'T' } }).then(function (r) {
+          fetch(buildWebdavUrl(item.href), { method: 'MOVE', credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'F' } }).then(function (r) {
             if (r.ok || r.status === 201 || r.status === 204) { showToast('Renamed'); setTimeout(function () { location.reload(); }, 400); }
             else { reportDavError('Rename', r); }
           }).catch(function () { reportDavError('Rename', null); });
@@ -1826,7 +1927,8 @@
         { label: 'Delete Permanently', role: 'danger', onClick: function () {
           fetch(buildWebdavUrl(item.href), { method: 'DELETE', credentials: 'same-origin' }).then(function (r) {
             if (r.ok || r.status === 200 || r.status === 204) { showToast('Deleted ' + item.name); setTimeout(function () { location.reload(); }, 400); }
-          });
+            else { reportDavError('Delete', r); }
+          }).catch(function () { reportDavError('Delete', null); });
         }},
         { label: 'Cancel', role: 'cancel' }
       ]
@@ -1836,7 +1938,7 @@
   var clipBar = document.getElementById('clipBar'), clipModeEl = document.getElementById('clipMode'), clipNameEl = document.getElementById('clipName');
   function refreshClipBar() {
     try {
-      var raw = sessionStorage.getItem('wpro_clip');
+      var raw = ssGet('wpro_clip');
       if (!raw) { clipBar.classList.remove('show'); return; }
       var clip = JSON.parse(raw);
       clipModeEl.textContent = clip.mode === 'MOVE' ? 'READY TO MOVE' : 'COPIED TO CLIPBOARD';
@@ -1845,7 +1947,7 @@
     } catch (e) { clipBar.classList.remove('show'); }
   }
   refreshClipBar();
-  function setClip(mode, items) { sessionStorage.setItem('wpro_clip', JSON.stringify({ mode: mode, items: items })); refreshClipBar(); }
+  function setClip(mode, items) { ssSet('wpro_clip', JSON.stringify({ mode: mode, items: items })); refreshClipBar(); }
 
   document.getElementById('actCopy').addEventListener('click', function () { if (selectedItem) { setClip('COPY', [selectedItem]); closeActionSheet(); showToast('Copied'); } });
   document.getElementById('actCut').addEventListener('click', function () { if (selectedItem) { setClip('MOVE', [selectedItem]); closeActionSheet(); showToast('Cut'); } });
@@ -1860,20 +1962,42 @@
       message: 'Are you sure you want to permanently delete the <b>' + count + ' selected item(s)</b>? This action cannot be undone.',
       buttons: [
         { label: 'Delete All Selected', role: 'danger', onClick: function () {
-          Promise.all(selectedSet.map(function (it) { return fetch(ingressPrefix + it.internalPath, { method: 'DELETE', credentials: 'same-origin' }); })).then(function () { location.reload(); });
+          Promise.all(selectedSet.map(function (it) {
+            return fetch(ingressPrefix + it.internalPath, { method: 'DELETE', credentials: 'same-origin' }).catch(function () { return { ok: false, status: 0 }; });
+          })).then(function (rs) {
+            var bad = rs.filter(function (r) { return !r.ok; }).length;
+            if (bad) { showToast(bad + ' of ' + rs.length + ' item(s) could not be deleted'); setTimeout(function () { location.reload(); }, 2200); }
+            else location.reload();
+          });
         }},
         { label: 'Cancel', role: 'cancel' }
       ]
     });
   });
-  document.getElementById('btnCancelClip').addEventListener('click', function () { sessionStorage.removeItem('wpro_clip'); refreshClipBar(); });
+  document.getElementById('btnCancelClip').addEventListener('click', function () { ssDel('wpro_clip'); refreshClipBar(); });
   document.getElementById('btnPaste').addEventListener('click', function () {
-    var raw = sessionStorage.getItem('wpro_clip'); if (!raw) return; var clip = JSON.parse(raw);
+    var raw = ssGet('wpro_clip'); if (!raw) return;
+    if (!requireFolder()) return;
+    var clip; try { clip = JSON.parse(raw); } catch (e) { ssDel('wpro_clip'); refreshClipBar(); return; }
     Promise.all(clip.items.map(function (it) {
       var destInternal = p + encodeURIComponent(it.name) + (it.isDir ? '/' : '');
-      if (destInternal === it.internalPath) destInternal = p + encodeURIComponent('copy_' + it.name) + (it.isDir ? '/' : '');
-      return fetch(ingressPrefix + it.internalPath, { method: clip.mode, credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'T' } });
-    })).then(function () { if (clip.mode === 'MOVE') sessionStorage.removeItem('wpro_clip'); location.reload(); });
+      if (destInternal === it.internalPath) {
+        if (clip.mode === 'MOVE') return Promise.resolve({ ok: true });   // moving into the same folder: nothing to do
+        destInternal = p + encodeURIComponent('copy_' + it.name) + (it.isDir ? '/' : '');
+      }
+      // Overwrite: F -> never silently replace an existing file/folder (server answers 412 instead).
+      return fetch(ingressPrefix + it.internalPath, { method: clip.mode, credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'F' } })
+        .catch(function () { return { ok: false, status: 0 }; });
+    })).then(function (rs) {
+      var bad = rs.filter(function (r) { return !r.ok; });
+      if (bad.length) {
+        reportDavError(clip.mode === 'MOVE' ? 'Move' : 'Copy', bad[0]);
+        setTimeout(function () { location.reload(); }, 2600);
+        return;
+      }
+      if (clip.mode === 'MOVE') ssDel('wpro_clip');
+      location.reload();
+    });
   });
 
   // 10. Search, Sort & Grid/List View
@@ -1894,8 +2018,8 @@
   var gridSvg = '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>';
   var listSvg = '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>';
   function applyView(mode) { var g = mode === 'grid'; document.body.classList.toggle('grid-mode', g); viewIcon.innerHTML = g ? listSvg : gridSvg; }
-  var savedView = localStorage.getItem('wpro_view') || 'list'; applyView(savedView);
-  viewBtn.addEventListener('click', function () { savedView = document.body.classList.contains('grid-mode') ? 'list' : 'grid'; localStorage.setItem('wpro_view', savedView); applyView(savedView); });
+  var savedView = lsGet('wpro_view', 'list'); applyView(savedView);
+  viewBtn.addEventListener('click', function () { savedView = document.body.classList.contains('grid-mode') ? 'list' : 'grid'; lsSet('wpro_view', savedView); applyView(savedView); });
 })();
 </script>
 </body>
