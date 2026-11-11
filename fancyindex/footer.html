@@ -623,7 +623,12 @@
     return location.pathname.replace(/\/?$/, '/') + cleanRel;
   }
   function apiUrl(endpoint) { return ingressPrefix + '/__wpro_api/' + endpoint; }
-  function buildDestinationHeader(targetInternalPath) { return location.origin + targetInternalPath; }
+  // Gửi Destination dạng đường dẫn tuyệt đối (bắt đầu bằng "/"): nginx dav chấp nhận và
+  // không so khớp host nên không lỗi 502 khi chạy sau Cloudflare Tunnel / reverse proxy.
+  function buildDestinationHeader(targetInternalPath) { return targetInternalPath; }
+  function reportDavError(label, r) {
+    showToast(label + ' failed (' + (r && r.status ? r.status : 'network') + ')');
+  }
 
   // 3. Tiêu đề, Back & Breadcrumbs
   document.getElementById('title').textContent = segs.length ? segs[segs.length - 1] : 'OmniDrive Pro';
@@ -1783,7 +1788,8 @@
           var destInternal = p + encodeURIComponent(dupName.trim()) + (item.isDir ? '/' : '');
           fetch(buildWebdavUrl(item.href), { method: 'COPY', credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'T' } }).then(function (r) {
             if (r.ok || r.status === 201 || r.status === 204) { showToast('Duplicated'); setTimeout(function () { location.reload(); }, 400); }
-          });
+            else { reportDavError('Duplicate', r); }
+          }).catch(function () { reportDavError('Duplicate', null); });
         }},
         { label: 'Cancel', role: 'cancel' }
       ]
@@ -1803,7 +1809,8 @@
           var destInternal = p + encodeURIComponent(newName.trim()) + (item.isDir ? '/' : '');
           fetch(buildWebdavUrl(item.href), { method: 'MOVE', credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'T' } }).then(function (r) {
             if (r.ok || r.status === 201 || r.status === 204) { showToast('Renamed'); setTimeout(function () { location.reload(); }, 400); }
-          });
+            else { reportDavError('Rename', r); }
+          }).catch(function () { reportDavError('Rename', null); });
         }},
         { label: 'Cancel', role: 'cancel' }
       ]
