@@ -17,7 +17,7 @@ services:
       # Điền IP LAN của máy chủ Linux để FTP Passive Mode hoạt động mượt
       - FTP_PASV_ADDRESS=192.168.1.100
     ports:
-      - "8090:8090"               # Web UI, WebDAV & Share Links[cite: 2]
+      - "8099:8090"               # Web UI, WebDAV & Share Links[cite: 2]
       - "445:445"                 # SMB / Samba Server[cite: 2]
       - "2222:2222"               # SFTP Server[cite: 2]
       - "2121:2121"               # FTP Control Port[cite: 2]
