@@ -1,5 +1,6 @@
 services:
   omnidrive-pro:
+    build: .
     image: ghcr.io/boystyle2010/omnidrive-pro:latest
     container_name: omnidrive-pro
     restart: unless-stopped
