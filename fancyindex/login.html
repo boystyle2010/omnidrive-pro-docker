@@ -176,7 +176,7 @@ h1{margin:0;font-size:23px;font-weight:700;letter-spacing:-.02em}
 
     fetch('/__wpro_api/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-WPro-CSRF': '1' },
       body: JSON.stringify({
         username: document.getElementById('inpUser').value.trim(),
         password: inpPass.value,
