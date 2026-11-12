@@ -1547,64 +1547,102 @@
     });
   });
 
-  // 7C. Quick Snapshot / Backup to Zip (Tự động nhận biết môi trường HA vs Docker)
+  // 7C. Quick Snapshot / Backup to Zip
   document.getElementById('btnSysSnap').addEventListener('click', function () {
-    var isHA = !!ingressPrefix; // Nếu có ingressPrefix nghĩa là đang chạy trên Home Assistant
+    var isHA = !!ingressPrefix; // Tự động nhận biết môi trường
     var htmlContent = '<p style="margin:0 0 12px;color:var(--muted);font-size:13.5px;line-height:1.45">Create an instant <code>.zip</code> backup directly inside your <code>/backup</code> folder.</p><div class="snap-stack">';
 
     if (isHA) {
       htmlContent += 
-        '<button id="btnSnapConfig" class="snap-card primary" type="button">' +
+        '<button class="snap-card primary" data-target="config" type="button">' +
           '<div class="snap-ic">' + IC_SNAP + '</div>' +
           '<div class="snap-txt"><b>Backup Entire /config Folder</b><span>Compresses all YAML, custom_components &amp; storage (excludes heavy DB/logs)</span></div>' +
         '</button>' +
-        '<button id="btnSnapAuto" class="snap-card" type="button">' +
+        '<button class="snap-card" data-target="automations" type="button">' +
           '<div class="snap-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></div>' +
           '<div class="snap-txt"><b>Backup Automations &amp; Scripts Only</b><span>Fast lightweight snapshot of automations, scripts, scenes &amp; packages</span></div>' +
         '</button>';
     } else {
       htmlContent += 
-        '<button id="btnSnapStorage" class="snap-card primary" type="button">' +
+        '<button class="snap-card primary" data-target="storage" type="button">' +
           '<div class="snap-ic">' + IC_SNAP + '</div>' +
           '<div class="snap-txt"><b>Backup Entire Storage Folder</b><span>Compresses all files in the /storage directory</span></div>' +
         '</button>' +
-        '<button id="btnSnapCurrent" class="snap-card" type="button">' +
+        '<button class="snap-card" data-target="current" type="button">' +
           '<div class="snap-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>' +
           '<div class="snap-txt"><b>Backup Current Directory</b><span>Compresses only the folder you are currently viewing: ' + esc(p) + '</span></div>' +
         '</button>';
     }
 
-    htmlContent += '</div><div id="snapStatus" style="padding:12px 14px;border-radius:12px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.08);font-family:monospace;font-size:12.5px;color:var(--muted);word-break:break-word">Ready to create snapshot.</div>';
+    // Thêm khung trạng thái và 2 nút Cancel / Start Backup
+    htmlContent += 
+      '</div>' +
+      '<div id="snapStatus" style="padding:12px 14px;border-radius:12px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.08);font-family:monospace;font-size:12.5px;color:var(--muted);word-break:break-word;margin-bottom:14px">Ready to create snapshot.</div>' +
+      '<div style="display:flex;gap:8px;">' +
+        '<button id="snapBtnCancel" class="act-btn" type="button" style="flex:1"><span>Cancel</span></button>' +
+        '<button id="snapBtnCreate" class="act-btn" type="button" style="flex:1;background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 6px 20px rgba(10,132,255,.38);font-weight:600"><span>Start Backup</span></button>' +
+      '</div>';
 
     openSuiteModal(IC_SNAP + '<span>Quick Snapshot to Zip</span>', htmlContent);
+
+    var selectedTarget = isHA ? 'config' : 'storage';
+    var cards = [].slice.call(suiteBody.querySelectorAll('.snap-card'));
+
+    // Xử lý khi click chọn thẻ Card
+    cards.forEach(function(card) {
+      card.addEventListener('click', function() {
+        cards.forEach(function(c) { c.classList.remove('primary'); });
+        this.classList.add('primary');
+        selectedTarget = this.getAttribute('data-target');
+        var st = document.getElementById('snapStatus');
+        st.style.color = 'var(--muted)';
+        st.textContent = 'Selected: ' + selectedTarget.toUpperCase() + '. Ready to backup.';
+      });
+    });
+
+    // Nút Hủy
+    document.getElementById('snapBtnCancel').addEventListener('click', function() {
+      document.getElementById('suiteClose').click();
+    });
+
+    // Nút Bắt đầu Backup (Hiển thị bảng xác nhận)
+    document.getElementById('snapBtnCreate').addEventListener('click', function() {
+      var targetName = selectedTarget === 'config' ? '/config Folder' :
+                       selectedTarget === 'automations' ? 'Automations & Scripts' :
+                       selectedTarget === 'storage' ? '/storage Folder' :
+                       'Current Directory (' + p + ')';
+      
+      showIosDialog({
+        type: 'warn',
+        title: 'Confirm Snapshot',
+        message: 'Are you sure you want to compress <b>' + targetName + '</b>? This might take a while depending on the size.',
+        buttons: [
+          { label: 'Start Backup', role: 'primary', onClick: function () { triggerSnap(selectedTarget); } },
+          { label: 'Cancel', role: 'cancel' }
+        ]
+      });
+    });
 
     function triggerSnap(target) {
       var st = document.getElementById('snapStatus');
       st.style.color = '#58a6ff';
       st.textContent = 'Compressing files into /backup ... Please wait...';
+      
       fetch(apiUrl('snapshot'), { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ target: target, cwd: p }) 
       })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-          if (!res.ok) throw new Error(res.error || 'Snapshot failed');
-          st.style.color = '#30d158';
-          st.innerHTML = '✓ Snapshot saved: <b>' + esc(res.path) + '</b> (' + res.size_kb + ' KB)';
-          showToast('Saved to ' + res.path);
-        }).catch(function (e) {
-          st.style.color = 'var(--red)';
-          st.textContent = 'Error: ' + e.message;
-        });
-    }
-
-    if (isHA) {
-      document.getElementById('btnSnapConfig').addEventListener('click', function () { triggerSnap('config'); });
-      document.getElementById('btnSnapAuto').addEventListener('click', function () { triggerSnap('automations'); });
-    } else {
-      document.getElementById('btnSnapStorage').addEventListener('click', function () { triggerSnap('storage'); });
-      document.getElementById('btnSnapCurrent').addEventListener('click', function () { triggerSnap('current'); });
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.error || 'Snapshot failed');
+        st.style.color = '#30d158';
+        st.innerHTML = '✓ Snapshot saved: <b>' + esc(res.path) + '</b> (' + res.size_kb + ' KB)';
+        showToast('Saved to ' + res.path);
+      }).catch(function (e) {
+        st.style.color = 'var(--red)';
+        st.textContent = 'Error: ' + e.message;
+      });
     }
   });
 
