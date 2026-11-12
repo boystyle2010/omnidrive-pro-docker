@@ -1048,22 +1048,48 @@ class WProHandler(BaseHTTPRequestHandler):
     def share_page(self, token, info, error=None, code=200):
         name = html.escape(info.get("name", "file"))
         err = '<p class="err">' + html.escape(error) + '</p>' if error else ""
+        
+        # Đã cập nhật giao diện đồng bộ với login.html
         page = ("""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark">
-<title>Protected download</title><style>
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1933;color:#fff;
-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px;box-sizing:border-box}
-.card{width:100%;max-width:380px;background:rgba(24,28,38,.8);border:1px solid rgba(255,255,255,.14);
-border-radius:22px;padding:28px 22px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.6)}
-h1{font-size:19px;margin:0 0 6px}p{color:#94a3b8;font-size:14px;margin:0 0 18px;word-break:break-word}
-input{width:100%;height:46px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(38,44,58,.9);
-color:#fff;font-size:16px;padding:0 14px;box-sizing:border-box;margin-bottom:12px;outline:none}
-input:focus{border-color:#0a84ff}button{width:100%;height:46px;border:0;border-radius:12px;background:#0a84ff;
-color:#fff;font-size:16px;font-weight:600;cursor:pointer}.err{color:#ff6961;margin:0 0 12px}
-</style></head><body><div class="card"><h1>&#128274; Password required</h1>
-<p>""" + name + """</p>""" + err + """<form method="post" action="">
-<input type="password" name="password" placeholder="Enter password" autocomplete="off" autofocus required>
-<button type="submit">Download</button></form></div></body></html>""").encode("utf-8")
+<meta name="viewport" content="width=device-width,initial-scale=1, maximum-scale=1, user-scalable=no"><meta name="color-scheme" content="dark">
+<title>Password Requires</title><style>
+:root { --bg:#0b1933; --card:rgba(24,28,38,.74); --input:rgba(38,44,58,.82); --text:#fff; --muted:#94a3b8; --blue:#0a84ff; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { margin:0; min-height:100vh; display:grid; place-items:center; background-color:var(--bg); color:var(--text);
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; padding:20px; position:relative; overflow:hidden; }
+/* Nền mờ Ambient */
+.ambient { position:fixed; top:-120px; left:-120px; right:-120px; bottom:-120px; z-index:-1; pointer-events:none;
+background: radial-gradient(circle at 50% 8%,rgba(14,165,233,.32),transparent 60%), radial-gradient(circle at 18% 35%,rgba(10,132,255,.28),transparent 58%), radial-gradient(circle at 82% 85%,rgba(139,92,246,.32),transparent 60%), linear-gradient(180deg,#0b1933 0%,#0d1f42 50%,#12163b 100%); }
+/* Khung kính mờ */
+.card { width:100%; max-width:380px; background:var(--card); -webkit-backdrop-filter:saturate(190%) blur(28px); backdrop-filter:saturate(190%) blur(28px);
+border:1px solid rgba(255,255,255,.14); border-radius:26px; padding:30px 24px 26px; box-shadow:0 24px 60px rgba(0,0,0,.65); text-align:center; animation:popIn .32s cubic-bezier(.2,.9,.3,1); }
+@keyframes popIn { from{opacity:0;transform:scale(.94) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
+/* Tiêu đề + Vector ổ khóa */
+h1 { font-size:20px; margin:0 0 6px; display:flex; align-items:center; justify-content:center; gap:8px; color:#fff; }
+h1 svg { width:22px; height:22px; color:#e2e8f0; }
+p { color:var(--muted); font-size:14px; margin:0 0 22px; word-break:break-word; }
+/* Khung nhập + Vector ổ khóa */
+.input-wrap { position:relative; display:flex; align-items:center; margin-bottom:20px; text-align:left; }
+.input-wrap svg { position:absolute; left:13px; width:18px; height:18px; color:var(--muted); pointer-events:none; }
+input { width:100%; height:46px; border-radius:13px; border:1px solid rgba(255,255,255,.1); background:var(--input);
+color:#fff; font-size:16px; padding:0 16px 0 40px; outline:none; transition:border-color .15s, background .15s; }
+input:focus { border-color:var(--blue); background:rgba(48,56,74,.95); }
+/* Nút phát sáng */
+button { width:100%; height:48px; border:0; border-radius:14px; background:var(--blue); color:#fff; font-size:16px; font-weight:600; cursor:pointer;
+box-shadow:0 6px 20px rgba(10,132,255,.38); transition:transform .12s, opacity .15s; display:flex; align-items:center; justify-content:center; }
+button:active { transform:scale(.98); }
+.err { color:#ff6961; margin:0 0 12px; font-size:13px; }
+</style></head><body><div class="ambient"></div><div class="card">
+<h1><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Password Requires</h1>
+<p>""" + name + """</p>""" + err + """
+<form method="post" action="">
+<div class="input-wrap">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    <input type="password" name="password" placeholder="Enter Password" autocomplete="off" autofocus required>
+</div>
+<button type="submit">Download</button>
+</form></div></body></html>""").encode("utf-8")
+        
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
