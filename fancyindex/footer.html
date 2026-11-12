@@ -1,5 +1,6 @@
 </div>
   <style>
+  @media (min-width:621px){.sys-bar.no-term{grid-template-columns:repeat(4,minmax(0,1fr))}}
   @keyframes popIn{from{opacity:0;transform:scale(.95) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
   @keyframes sheetUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}}
   body.grid-mode #list tbody{background:transparent;border:0;border-radius:0;box-shadow:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(114px,1fr));gap:12px}
@@ -423,6 +424,19 @@
 </div>
 <script>
 (function () {
+  // CSRF protection: every state-changing API call carries a custom header. Browsers cannot send a
+  // custom header cross-origin without a CORS preflight, which the server never approves.
+  (function () {
+    var _fetch = window.fetch;
+    window.fetch = function (url, opts) {
+      try {
+        if (opts && /^POST$/i.test(opts.method || '') && String(url).indexOf('/__wpro_api/') !== -1) {
+          opts.headers = Object.assign({}, opts.headers || {}, { 'X-WPro-CSRF': '1' });
+        }
+      } catch (e) {}
+      return _fetch.call(this, url, opts);
+    };
+  })();
   var GL = {
     img:'<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4.5 3.5 3 3-2.5 4.5 4"/>',
     vid:'<rect x="3" y="6.5" width="12.5" height="11" rx="2.5"/><path d="M15.5 10.5l5-3v9l-5-3z"/>',
@@ -1597,14 +1611,67 @@
     });
   });
 
-  // 7E. Audit Log & Active Share Links Manager
+  // 7E. Signed-in devices, Audit Log & Active Share Links Manager
+  function deviceLabel(ua) {
+    ua = ua || '';
+    var os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' :
+             /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /CrOS/.test(ua) ? 'ChromeOS' : /Linux/.test(ua) ? 'Linux' : 'Unknown device';
+    var br = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) || /CriOS/.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+    return os + (br ? ' \u2022 ' + br : '');
+  }
+  function agoText(ts) {
+    var d = Math.max(0, Math.round(Date.now() / 1000 - (ts || 0)));
+    if (d < 60) return 'just now';
+    if (d < 3600) return Math.floor(d / 60) + 'm ago';
+    if (d < 86400) return Math.floor(d / 3600) + 'h ago';
+    return Math.floor(d / 86400) + 'd ago';
+  }
+  // New-device alert: popup ONLY when a device that never signed in before has logged in
+  // and nobody has confirmed it yet. Nothing is shown in the normal case.
+  var newDevAsked = {};
+  function checkNewDevices() {
+    if (document.hidden) return;
+    var mask = document.getElementById('iosDialogMask');
+    if (mask && mask.classList.contains('show')) return;
+    fetch(apiUrl('sessions'), { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (res) {
+      if (!res || !res.sessions) return;
+      var x = null;
+      for (var i = 0; i < res.sessions.length; i++) {
+        var s = res.sessions[i];
+        if (s.new && !s.ack && !s.current && !newDevAsked[s.sid]) { x = s; break; }
+      }
+      if (!x) return;
+      newDevAsked[x.sid] = true;
+      var post = function (route, body) {
+        return fetch(apiUrl(route), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json(); });
+      };
+      showIosDialog({
+        type: 'danger',
+        title: 'New device signed in',
+        message: '<b>' + esc(deviceLabel(x.ua)) + '</b> signed in as <b>' + esc(x.user) + '</b> from IP <b>' + esc(x.ip || '?') + '</b> ' + esc(agoText(x.created)) + '.<br>This kind of device has never signed in before. Was it you?',
+        buttons: [
+          { label: 'Not me \u2013 sign it out', role: 'danger', onClick: function () {
+            post('session_revoke', { sid: x.sid }).then(function () { showToast('Device signed out'); });
+          }},
+          { label: "It's me", role: 'primary', onClick: function () {
+            post('session_ack', { sid: x.sid }).then(function () { showToast('Marked as trusted'); });
+          }}
+        ]
+      });
+    }).catch(function () {});
+  }
+  setTimeout(checkNewDevices, 2500);
+  setInterval(checkNewDevices, 60000);
+
   function openAuditAndSharesModal() {
-    openSuiteModal(IC_SHIELD + '<span>Security Audit &amp; Share Links</span>', '<div style="text-align:center;padding:24px;color:var(--muted)">Loading security records...</div>');
+    openSuiteModal(IC_SHIELD + '<span>Security: Devices, Shares &amp; Audit</span>', '<div style="text-align:center;padding:24px;color:var(--muted)">Loading security records...</div>');
     Promise.all([
       fetch(apiUrl('shares')).then(function (r) { return r.json(); }),
-      fetch(apiUrl('audit?limit=120')).then(function (r) { return r.json(); })
+      fetch(apiUrl('audit?limit=120')).then(function (r) { return r.json(); }),
+      fetch(apiUrl('sessions')).then(function (r) { return r.json(); }).catch(function () { return { sessions: [] }; })
     ]).then(function (results) {
       var shares = (results[0] && results[0].shares) || [];
+      var sessions = (results[2] && results[2].sessions) || [];
       var logs = (results[1] && results[1].logs) || [];
 
       var sharesRows = shares.length ? shares.map(function (s) {
@@ -1618,7 +1685,7 @@
               '<span class="badge-m badge-SHARE_CREATE">' + esc(timeStr) + '</span>' +
               '<span class="ios-row-title">' + esc(s.name) + '</span>' +
             '</div>' +
-            '<div class="ios-row-sub">' + esc(s.path) + '</div>' +
+            '<div class="ios-row-sub">' + esc(s.path) + ' \u2022 ' + (s.max_uses ? (s.uses || 0) + '/' + s.max_uses + ' downloads' : (s.uses || 0) + ' downloads') + (s.has_password ? ' \u2022 \uD83D\uDD12 password' : '') + '</div>' +
           '</div>' +
           '<button class="ios-row-more share-opt-btn" data-name="' + esc(s.name) + '" data-tok="' + esc(s.token) + '" data-ext="' + esc(extUrl) + '" data-ing="' + esc(ingUrl) + '" type="button" title="Share Link Options">' + MORE_DOTS_SVG + '</button>' +
         '</div>';
@@ -1638,7 +1705,31 @@
         '</div>';
       }).join('') : '<div class="ios-row"><div class="ios-row-sub" style="padding:4px 0">No file modifications or downloads recorded yet.</div></div>';
 
+      var X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+      var sessRows = sessions.length ? sessions.map(function (x) {
+        var where = (x.last_ip && x.last_ip !== x.ip) ? esc(x.last_ip) + ' (login: ' + esc(x.ip || '?') + ')' : esc(x.ip || '?');
+        return '<div class="ios-row">' +
+          '<div class="ios-row-main">' +
+            '<div class="ios-row-top">' +
+              (x.current ? '<span class="badge-m badge-SHARE_CREATE">This device</span>' : '') +
+              (x.new ? '<span class="badge-m" style="background:rgba(255,159,10,.18);color:#ff9f0a;border:1px solid rgba(255,159,10,.35)">NEW DEVICE</span>' : '') +
+              '<span class="ios-row-title">' + esc(deviceLabel(x.ua)) + '</span>' +
+            '</div>' +
+            '<div class="ios-row-sub">' + esc(x.user) + ' \u2022 ' + where + ' \u2022 active ' + esc(agoText(x.last_seen)) + '</div>' +
+          '</div>' +
+          '<button class="ios-row-more sess-revoke-btn" data-sid="' + esc(x.sid) + '" data-cur="' + (x.current ? '1' : '0') + '" data-label="' + esc(deviceLabel(x.ua)) + '" type="button" title="Sign out this device" style="color:var(--red)">' + X_SVG + '</button>' +
+        '</div>';
+      }).join('') : '<div class="ios-row"><div class="ios-row-sub" style="padding:4px 0">No tracked web sessions. (Logins from WebDAV / file apps using Basic Auth are not listed here.)</div></div>';
+
       suiteBody.innerHTML =
+        '<div class="ios-sec-head">' +
+          '<span class="ios-sec-title">Signed-in Devices (' + sessions.length + ')</span>' +
+          '<span style="display:flex;gap:6px;flex-wrap:wrap">' +
+            (sessions.length > 1 ? '<button id="btnSignOutOthers" class="ed-chip" style="color:var(--red);border-color:rgba(255,69,58,.3)" type="button">Sign out others</button>' : '') +
+            '<button id="btnRotateKey" class="ed-chip" style="color:var(--red);border-color:rgba(255,69,58,.3)" type="button">Sign out all &amp; rotate key</button>' +
+          '</span>' +
+        '</div>' +
+        '<div class="ios-group-card">' + sessRows + '</div>' +
         '<div class="ios-sec-head">' +
           '<span class="ios-sec-title">Active Expiry Share Links (' + shares.length + ')</span>' +
         '</div>' +
@@ -1656,6 +1747,62 @@
           var extU = this.getAttribute('data-ext');
           var ingU = this.getAttribute('data-ing');
           openShareItemOptionsModal(name, tok, extU, ingU);
+        });
+      });
+
+      [].slice.call(suiteBody.querySelectorAll('.sess-revoke-btn')).forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var sid = this.getAttribute('data-sid'), cur = this.getAttribute('data-cur') === '1', label = this.getAttribute('data-label');
+          showIosDialog({
+            type: 'danger',
+            title: cur ? 'Sign out this device?' : 'Sign out ' + label + '?',
+            message: cur ? 'You will be signed out of this browser right now.' : 'That device is signed out immediately and its login token stops working. It must sign in again with the password.',
+            buttons: [
+              { label: 'Sign out', role: 'danger', onClick: function () {
+                fetch(apiUrl('session_revoke'), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sid: sid }) })
+                  .then(function (r) { return r.json(); })
+                  .then(function (res) {
+                    if (!res.ok) throw new Error(res.error || 'Failed');
+                    if (cur) { location.reload(); return; }
+                    showToast('Device signed out'); openAuditAndSharesModal();
+                  }).catch(function (e) { showToast('Failed: ' + e.message); });
+              }},
+              { label: 'Cancel', role: 'cancel' }
+            ]
+          });
+        });
+      });
+      var outOthers = document.getElementById('btnSignOutOthers');
+      if (outOthers) outOthers.addEventListener('click', function () {
+        showIosDialog({
+          type: 'danger',
+          title: 'Sign out all other devices?',
+          message: 'Every device except this one is signed out immediately and its login token is revoked.',
+          buttons: [
+            { label: 'Sign out others', role: 'danger', onClick: function () {
+              fetch(apiUrl('session_revoke'), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all_others: true }) })
+                .then(function (r) { return r.json(); })
+                .then(function (res) { showToast('Signed out ' + (res.revoked || 0) + ' device(s)'); openAuditAndSharesModal(); });
+            }},
+            { label: 'Cancel', role: 'cancel' }
+          ]
+        });
+      });
+
+      var rotBtn = document.getElementById('btnRotateKey');
+      if (rotBtn) rotBtn.addEventListener('click', function () {
+        showIosDialog({
+          type: 'danger',
+          title: 'Sign out ALL devices & rotate key?',
+          message: 'Every device, <b>including this one</b>, is signed out and a brand-new session signing key is generated, so no old login token can ever be used again. Use this if you think a token leaked.',
+          buttons: [
+            { label: 'Sign out all & rotate', role: 'danger', onClick: function () {
+              fetch(apiUrl('session_revoke'), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rotate: true }) })
+                .then(function (r) { return r.json(); })
+                .then(function () { location.href = '/.fancyindex/login.html?rd=' + encodeURIComponent(location.pathname); });
+            }},
+            { label: 'Cancel', role: 'cancel' }
+          ]
         });
       });
 
@@ -1838,26 +1985,45 @@
       : 'Generate a temporary direct download URL for <b>' + esc(item.name) + '</b> without exposing your password.';
     openSuiteModal(IC_SHARE + '<span>Create Expiry Share Link</span>',
       '<p style="margin:0 0 12px;color:var(--muted);font-size:13.5px;line-height:1.45">' + desc + '</p>' +
+      '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px">' +
+        '<label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Max downloads' +
+          '<select id="shMax" style="display:block;width:100%;height:40px;margin-top:5px;border-radius:11px;border:1px solid var(--glass-border);background:rgba(0,0,0,.35);color:var(--text);padding:0 10px;font-size:15px">' +
+            '<option value="0">Unlimited</option><option value="1">1 time</option><option value="3">3 times</option><option value="5">5 times</option><option value="10">10 times</option><option value="25">25 times</option><option value="100">100 times</option>' +
+          '</select></label>' +
+        '<label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Password (optional)' +
+          '<input id="shPw" type="password" maxlength="128" autocomplete="new-password" placeholder="None" style="display:block;width:100%;height:40px;margin-top:5px;border-radius:11px;border:1px solid var(--glass-border);background:rgba(0,0,0,.35);color:var(--text);padding:0 12px;font-size:16px;box-sizing:border-box">' +
+        '</label>' +
+      '</div>' +
       '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:14px">' +
         '<button class="act-btn ttl-btn" data-ttl="3600" type="button"><span>1 Hour</span></button>' +
         '<button class="act-btn ttl-btn" data-ttl="21600" type="button"><span>6 Hours</span></button>' +
         '<button class="act-btn primary ttl-btn" data-ttl="86400" type="button"><span>24 Hours</span></button>' +
         '<button class="act-btn ttl-btn" data-ttl="604800" type="button"><span>7 Days</span></button>' +
       '</div>' +
-      '<div id="shareResultBox" style="padding:12px 14px;border-radius:12px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.08);font-size:13px;color:var(--muted)">Tap an expiration duration above to generate link.</div>'
+      '<div style="display:flex;gap:8px;align-items:center;margin:-4px 0 14px">' +
+        '<input id="shDays" type="number" min="1" max="365" inputmode="numeric" placeholder="Custom days (1-365)" style="flex:1;min-width:0;height:40px;border-radius:11px;border:1px solid var(--glass-border);background:rgba(0,0,0,.35);color:var(--text);padding:0 12px;font-size:16px;box-sizing:border-box">' +
+        '<button class="act-btn ttl-btn" id="shDaysBtn" data-ttl="custom" type="button" style="flex:0 0 auto"><span>Create</span></button>' +
+      '</div>' +
+      '<div id="shareResultBox" style="padding:12px 14px;border-radius:12px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.08);font-size:13px;color:var(--muted)">Choose the limits above, then tap an expiration duration to generate the link.</div>'
     );
     [].slice.call(suiteBody.querySelectorAll('.ttl-btn')).forEach(function (b) {
       b.addEventListener('click', function () {
         var ttl = parseInt(this.getAttribute('data-ttl'), 10);
         var box = document.getElementById('shareResultBox');
+        if (this.getAttribute('data-ttl') === 'custom') {
+          var days = parseInt(document.getElementById('shDays').value, 10);
+          if (!(days >= 1 && days <= 365)) { box.style.color = 'var(--red)'; box.textContent = 'Enter a number of days between 1 and 365.'; return; }
+          ttl = days * 86400;
+        }
         box.textContent = 'Generating secure share token...';
-        fetch(apiUrl('share'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create', path: decodeURIComponent(item.internalPath), ttl: ttl }) })
+        fetch(apiUrl('share'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create', path: decodeURIComponent(item.internalPath), ttl: ttl, max_uses: parseInt(document.getElementById('shMax').value, 10) || 0, password: document.getElementById('shPw').value }) })
           .then(function (r) { return r.json(); })
           .then(function (res) {
             if (!res.ok) throw new Error(res.error || 'Failed');
             var externalShareUrl = (ingressPrefix ? (location.protocol + '//' + location.hostname + ':8090') : location.origin) + '/s/' + res.token;
             var currentOriginUrl = location.origin + ingressPrefix + '/s/' + res.token;
             openShareItemOptionsModal(res.name, res.token, externalShareUrl, currentOriginUrl);
+            showToast('Link created' + (res.max_uses ? ' \u2022 ' + res.max_uses + ' download(s)' : '') + (res.has_password ? ' \u2022 password protected' : ''));
           }).catch(function (err) { box.style.color = 'var(--red)'; box.textContent = 'Error: ' + err.message; });
       });
     });
@@ -1947,6 +2113,15 @@
     } catch (e) { clipBar.classList.remove('show'); }
   }
   refreshClipBar();
+  // Hide the Terminal button when the server runs with ENABLE_TERMINAL=false.
+  fetch(apiUrl('protocols'), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (info) {
+    if (info && info.terminal === false) {
+      var tb = document.getElementById('btnSysTerm');
+      if (tb) tb.remove();
+      var sb = document.querySelector('.sys-bar');
+      if (sb) sb.classList.add('no-term');
+    }
+  }).catch(function () {});
   function setClip(mode, items) { ssSet('wpro_clip', JSON.stringify({ mode: mode, items: items })); refreshClipBar(); }
 
   document.getElementById('actCopy').addEventListener('click', function () { if (selectedItem) { setClip('COPY', [selectedItem]); closeActionSheet(); showToast('Copied'); } });
