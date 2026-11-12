@@ -1828,10 +1828,10 @@
       if (rotBtn) rotBtn.addEventListener('click', function () {
         showIosDialog({
           type: 'danger',
-          title: 'Sign out ALL devices & rotate key?',
+          title: 'Sign out ALL Devices & Rotate Key?',
           message: 'Every device, <b>including this one</b>, is signed out and a brand-new session signing key is generated, so no old login token can ever be used again. Use this if you think a token leaked.',
           buttons: [
-            { label: 'Sign out all & rotate', role: 'danger', onClick: function () {
+            { label: 'Sign Out All & Rotate', role: 'danger', onClick: function () {
               fetch(apiUrl('session_revoke'), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rotate: true }) })
                 .then(function (r) { return r.json(); })
                 .then(function () { location.href = '/.fancyindex/login.html?rd=' + encodeURIComponent(location.pathname); });
