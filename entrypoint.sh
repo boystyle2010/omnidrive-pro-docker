@@ -946,6 +946,55 @@ def dir_size_bytes(path):
     except Exception:
         return None
 
+CONFIG_LOCK = threading.Lock()
+
+def _make_pw_hash(pw):
+    salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), bytes.fromhex(salt), 200000).hex()
+    return "pbkdf2_sha256$200000$%s$%s" % (salt, h)
+
+def change_user_password(username, new_pw):
+    """Store only hashes in options.json and update the Linux / Samba accounts right away. Returns (ok, warnings)."""
+    crypt = ""
+    try:
+        r = subprocess.run(["openssl", "passwd", "-6", "-stdin"], input=new_pw + "\n", capture_output=True, text=True, timeout=20)
+        if r.returncode == 0 and r.stdout.startswith("$6$"):
+            crypt = r.stdout.strip()
+    except Exception:
+        pass
+    with CONFIG_LOCK:
+        cfg = get_config()
+        target = None
+        for u in cfg.get("users", []):
+            if u.get("username") == username:
+                target = u
+                break
+        if target is None:
+            return False, ["user not found"]
+        target["password_hash"] = _make_pw_hash(new_pw)
+        target["crypt_hash"] = crypt
+        target.pop("password", None)
+        tmp = CONFIG_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, CONFIG_PATH)
+    warnings = []
+    try:
+        r = subprocess.run(["chpasswd"], input="%s:%s\n" % (username, new_pw), capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            warnings.append("SFTP/FTP password could not be updated")
+    except Exception:
+        warnings.append("SFTP/FTP password could not be updated")
+    if cfg.get("smb_enabled", True):
+        try:
+            r = subprocess.run(["smbpasswd", "-a", "-s", username], input="%s\n%s\n" % (new_pw, new_pw), capture_output=True, text=True, timeout=20)
+            if r.returncode != 0:
+                warnings.append("SMB password could not be updated")
+        except Exception:
+            warnings.append("SMB password could not be updated")
+    return True, warnings
+
 class WProHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
@@ -1320,6 +1369,41 @@ color:#fff;font-size:16px;font-weight:600;cursor:pointer}.err{color:#ff6961;marg
                 pass
             cookie_val = "wpro_sess=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
             self.send_json({"ok": True}, 200, {"Set-Cookie": cookie_val})
+            return
+
+        if route == "/__wpro_api/change_password":
+            user = self.get_auth_user()
+            if not user:
+                self.send_json({"ok": False, "error": "Unauthorized"}, 401)
+                return
+            ip = self.client_ip()
+            old_pw = str(body.get("old", ""))
+            new_pw = str(body.get("new", ""))
+            key = "chpw|" + ip + "|" + user.lower()
+            if login_locked(key):
+                self.send_json({"ok": False, "error": "Too many wrong attempts. Try again in a few minutes."}, 429)
+                return
+            if not verify_credentials(user, old_pw):
+                login_failed(key)
+                time.sleep(0.4)
+                append_audit(user, "PASSWORD_CHANGE_FAIL", "wrong current password", 403, ip)
+                self.send_json({"ok": False, "error": "Current password is wrong"}, 403)
+                return
+            login_ok(key)
+            if len(new_pw) < 8 or len(new_pw) > 128 or any(ord(c) < 32 for c in new_pw):
+                self.send_json({"ok": False, "error": "New password must be 8-128 characters with no control characters"}, 400)
+                return
+            if new_pw == old_pw:
+                self.send_json({"ok": False, "error": "New password must be different"}, 400)
+                return
+            ok, warnings = change_user_password(user, new_pw)
+            if not ok:
+                self.send_json({"ok": False, "error": "Could not change the password"}, 500)
+                return
+            n = revoke_other_sessions(self.sid)
+            append_audit(user, "PASSWORD_CHANGE", "other devices signed out: " + str(n), 200, ip)
+            env_override = bool(os.environ.get("OMNI_PASS") or os.environ.get("OMNI_PASS_FILE")) and os.environ.get("OMNI_USER", "") == user
+            self.send_json({"ok": True, "revoked": n, "env_override": env_override, "warnings": warnings})
             return
 
         if route == "/__wpro_api/session_ack":
