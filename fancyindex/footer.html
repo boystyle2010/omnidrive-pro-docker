@@ -1547,11 +1547,13 @@
     });
   });
 
-  // 7C. Quick Snapshot / Backup to Zip
+  // 7C. Quick Snapshot / Backup to Zip (Tự động nhận biết môi trường HA vs Docker)
   document.getElementById('btnSysSnap').addEventListener('click', function () {
-    openSuiteModal(IC_SNAP + '<span>Quick Snapshot to Zip</span>',
-      '<p style="margin:0 0 12px;color:var(--muted);font-size:13.5px;line-height:1.45">Create an instant <code>.zip</code> backup directly inside your <code>/backup</code> folder before editing configuration files.</p>' +
-      '<div class="snap-stack">' +
+    var isHA = !!ingressPrefix; // Nếu có ingressPrefix nghĩa là đang chạy trên Home Assistant
+    var htmlContent = '<p style="margin:0 0 12px;color:var(--muted);font-size:13.5px;line-height:1.45">Create an instant <code>.zip</code> backup directly inside your <code>/backup</code> folder.</p><div class="snap-stack">';
+
+    if (isHA) {
+      htmlContent += 
         '<button id="btnSnapConfig" class="snap-card primary" type="button">' +
           '<div class="snap-ic">' + IC_SNAP + '</div>' +
           '<div class="snap-txt"><b>Backup Entire /config Folder</b><span>Compresses all YAML, custom_components &amp; storage (excludes heavy DB/logs)</span></div>' +
@@ -1559,15 +1561,32 @@
         '<button id="btnSnapAuto" class="snap-card" type="button">' +
           '<div class="snap-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></div>' +
           '<div class="snap-txt"><b>Backup Automations &amp; Scripts Only</b><span>Fast lightweight snapshot of automations, scripts, scenes &amp; packages</span></div>' +
+        '</button>';
+    } else {
+      htmlContent += 
+        '<button id="btnSnapStorage" class="snap-card primary" type="button">' +
+          '<div class="snap-ic">' + IC_SNAP + '</div>' +
+          '<div class="snap-txt"><b>Backup Entire Storage Folder</b><span>Compresses all files in the /storage directory</span></div>' +
         '</button>' +
-      '</div>' +
-      '<div id="snapStatus" style="padding:12px 14px;border-radius:12px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.08);font-family:monospace;font-size:12.5px;color:var(--muted);word-break:break-word">Ready to create snapshot.</div>'
-    );
+        '<button id="btnSnapCurrent" class="snap-card" type="button">' +
+          '<div class="snap-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>' +
+          '<div class="snap-txt"><b>Backup Current Directory</b><span>Compresses only the folder you are currently viewing: ' + esc(p) + '</span></div>' +
+        '</button>';
+    }
+
+    htmlContent += '</div><div id="snapStatus" style="padding:12px 14px;border-radius:12px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.08);font-family:monospace;font-size:12.5px;color:var(--muted);word-break:break-word">Ready to create snapshot.</div>';
+
+    openSuiteModal(IC_SNAP + '<span>Quick Snapshot to Zip</span>', htmlContent);
+
     function triggerSnap(target) {
       var st = document.getElementById('snapStatus');
       st.style.color = '#58a6ff';
       st.textContent = 'Compressing files into /backup ... Please wait...';
-      fetch(apiUrl('snapshot'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: target }) })
+      fetch(apiUrl('snapshot'), { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ target: target, cwd: p }) 
+      })
         .then(function (r) { return r.json(); })
         .then(function (res) {
           if (!res.ok) throw new Error(res.error || 'Snapshot failed');
@@ -1579,8 +1598,14 @@
           st.textContent = 'Error: ' + e.message;
         });
     }
-    document.getElementById('btnSnapConfig').addEventListener('click', function () { triggerSnap('config'); });
-    document.getElementById('btnSnapAuto').addEventListener('click', function () { triggerSnap('automations'); });
+
+    if (isHA) {
+      document.getElementById('btnSnapConfig').addEventListener('click', function () { triggerSnap('config'); });
+      document.getElementById('btnSnapAuto').addEventListener('click', function () { triggerSnap('automations'); });
+    } else {
+      document.getElementById('btnSnapStorage').addEventListener('click', function () { triggerSnap('storage'); });
+      document.getElementById('btnSnapCurrent').addEventListener('click', function () { triggerSnap('current'); });
+    }
   });
 
   // 7D. Multi-Protocol Connect Hub
