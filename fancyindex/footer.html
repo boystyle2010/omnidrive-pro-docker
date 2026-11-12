@@ -249,7 +249,7 @@
 
   .badge-m{padding:2px 7px;border-radius:6px;font-size:10.5px;font-weight:700;flex:none;white-space:nowrap;font-family:"SF Mono",monospace}
   .badge-PUT,.badge-SNAPSHOT,.badge-SHARE_CREATE,.badge-MKCOL,.badge-WEB_LOGIN{background:rgba(48,209,88,.18);color:#30d158}
-  .badge-DELETE,.badge-SHARE_REVOKE,.badge-LOGIN_FAIL{background:rgba(255,69,58,.18);color:#ff453a}
+  .badge-DELETE,.badge-SHARE_REVOKE,.badge-LOGIN_FAIL,.badge-SHARE_PW_FAIL{background:rgba(255,69,58,.18);color:#ff453a}
   .badge-GET,.badge-SHARE_DL,.badge-COPY,.badge-MOVE,.badge-TERM_CMD{background:rgba(10,132,255,.18);color:#58a6ff}
   .term-frame{width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:#000;overflow:hidden}
   .empty{display:none;text-align:center;padding:42px 20px;color:var(--muted);font-size:15px}
@@ -1780,7 +1780,8 @@
           '<span class="ios-sec-title">Signed-in Devices (' + sessions.length + ')</span>' +
           '<span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
             (sessions.length > 1 ? '<button id="btnSignOutOthers" class="ed-chip" style="color:var(--red);border-color:rgba(255,69,58,.3)" type="button">Sign out others</button>' : '') +
-            '<button id="btnRotateKey" class="ed-chip" style="color:var(--yellow);border-color:rgba(255,69,58,.3)" type="button">Sign Out All &amp; Rotate Key</button>' +
+            // Đã đổi màu nút Sign Out All & Rotate Key sang màu đỏ
+            '<button id="btnRotateKey" class="ed-chip" style="color:var(--red);border-color:rgba(255,69,58,.3)" type="button">Sign Out All &amp; Rotate Key</button>' +
           '</span>' +
         '</div>' +
         '<div class="ios-group-card">' + sessRows + '</div>' +
@@ -2051,37 +2052,86 @@
           '<input id="shPw" type="password" maxlength="128" autocomplete="new-password" placeholder="None" style="display:block;width:100%;height:40px;margin-top:5px;border-radius:11px;border:1px solid var(--glass-border);background:rgba(0,0,0,.35);color:var(--text);padding:0 12px;font-size:16px;box-sizing:border-box">' +
         '</label>' +
       '</div>' +
-      '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:14px">' +
+      '<div id="shTtlGroup" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px">' +
         '<button class="act-btn ttl-btn" data-ttl="3600" type="button"><span>1 Hour</span></button>' +
         '<button class="act-btn ttl-btn" data-ttl="21600" type="button"><span>6 Hours</span></button>' +
         '<button class="act-btn primary ttl-btn" data-ttl="86400" type="button"><span>24 Hours</span></button>' +
         '<button class="act-btn ttl-btn" data-ttl="604800" type="button"><span>7 Days</span></button>' +
       '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center;margin:-4px 0 14px">' +
-        '<input id="shDays" type="number" min="1" max="365" inputmode="numeric" placeholder="Custom days (1-365)" style="flex:1;min-width:0;height:40px;border-radius:11px;border:1px solid var(--glass-border);background:rgba(0,0,0,.35);color:var(--text);padding:0 12px;font-size:16px;box-sizing:border-box">' +
-        '<button class="act-btn ttl-btn" id="shDaysBtn" data-ttl="custom" type="button" style="flex:0 0 auto"><span>Create</span></button>' +
+      '<input id="shDays" type="number" min="1" max="365" inputmode="numeric" placeholder="Custom days (1-365)" style="display:block;width:100%;height:40px;margin-bottom:14px;border-radius:11px;border:1px solid var(--glass-border);background:rgba(0,0,0,.35);color:var(--text);padding:0 12px;font-size:16px;box-sizing:border-box">' +
+      '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+        '<button id="shBtnCancel" class="act-btn" type="button" style="flex:1"><span>Cancel</span></button>' +
+        '<button id="shBtnCreate" class="act-btn primary" type="button" style="flex:2"><span>Create Link</span></button>' +
       '</div>' +
-      '<div id="shareResultBox" style="padding:12px 14px;border-radius:12px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.08);font-size:13px;color:var(--muted)">Choose the limits above, then tap an expiration duration to generate the link.</div>'
+      '<div id="shareResultBox" style="padding:12px 14px;border-radius:12px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.08);font-size:13px;color:var(--muted)">Choose the limits above, then click Create Link.</div>'
     );
-    [].slice.call(suiteBody.querySelectorAll('.ttl-btn')).forEach(function (b) {
-      b.addEventListener('click', function () {
-        var ttl = parseInt(this.getAttribute('data-ttl'), 10);
-        var box = document.getElementById('shareResultBox');
-        if (this.getAttribute('data-ttl') === 'custom') {
-          var days = parseInt(document.getElementById('shDays').value, 10);
-          if (!(days >= 1 && days <= 365)) { box.style.color = 'var(--red)'; box.textContent = 'Enter a number of days between 1 and 365.'; return; }
-          ttl = days * 86400;
+    
+    var selectedTtl = 86400;
+    var ttlBtns = [].slice.call(suiteBody.querySelectorAll('.ttl-btn'));
+    var shDaysInput = document.getElementById('shDays');
+    var box = document.getElementById('shareResultBox');
+
+    ttlBtns.forEach(function(b) {
+      b.addEventListener('click', function() {
+        ttlBtns.forEach(function(x) { x.classList.remove('primary'); });
+        this.classList.add('primary');
+        selectedTtl = parseInt(this.getAttribute('data-ttl'), 10);
+        shDaysInput.value = '';
+      });
+    });
+
+    shDaysInput.addEventListener('input', function() {
+      if (this.value.trim() !== '') {
+        ttlBtns.forEach(function(x) { x.classList.remove('primary'); });
+      } else {
+        ttlBtns.forEach(function(x) {
+          if (x.getAttribute('data-ttl') === selectedTtl.toString()) x.classList.add('primary');
+        });
+      }
+    });
+
+    document.getElementById('shBtnCancel').addEventListener('click', function() {
+      document.getElementById('suiteClose').click();
+    });
+
+    document.getElementById('shBtnCreate').addEventListener('click', function() {
+      var finalTtl = selectedTtl;
+      var daysStr = shDaysInput.value.trim();
+      if (daysStr !== '') {
+        var days = parseInt(daysStr, 10);
+        if (!(days >= 1 && days <= 365)) {
+          box.style.color = 'var(--red)';
+          box.textContent = 'Custom days must be between 1 and 365.';
+          return;
         }
-        box.textContent = 'Generating secure share token...';
-        fetch(apiUrl('share'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create', path: decodeURIComponent(item.internalPath), ttl: ttl, max_uses: parseInt(document.getElementById('shMax').value, 10) || 0, password: document.getElementById('shPw').value }) })
-          .then(function (r) { return r.json(); })
-          .then(function (res) {
-            if (!res.ok) throw new Error(res.error || 'Failed');
-            var externalShareUrl = (ingressPrefix ? (location.protocol + '//' + location.hostname + ':8090') : location.origin) + '/s/' + res.token;
-            var currentOriginUrl = location.origin + ingressPrefix + '/s/' + res.token;
-            openShareItemOptionsModal(res.name, res.token, externalShareUrl, currentOriginUrl);
-            showToast('Link created' + (res.max_uses ? ' \u2022 ' + res.max_uses + ' download(s)' : '') + (res.has_password ? ' \u2022 password protected' : ''));
-          }).catch(function (err) { box.style.color = 'var(--red)'; box.textContent = 'Error: ' + err.message; });
+        finalTtl = days * 86400;
+      }
+
+      box.style.color = 'var(--muted)';
+      box.textContent = 'Generating secure share token...';
+
+      fetch(apiUrl('share'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          path: decodeURIComponent(item.internalPath),
+          ttl: finalTtl,
+          max_uses: parseInt(document.getElementById('shMax').value, 10) || 0,
+          password: document.getElementById('shPw').value
+        })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (!res.ok) throw new Error(res.error || 'Failed');
+        var externalShareUrl = (ingressPrefix ? (location.protocol + '//' + location.hostname + ':8090') : location.origin) + '/s/' + res.token;
+        var currentOriginUrl = location.origin + ingressPrefix + '/s/' + res.token;
+        openShareItemOptionsModal(res.name, res.token, externalShareUrl, currentOriginUrl);
+        showToast('Link created' + (res.max_uses ? ' \u2022 ' + res.max_uses + ' download(s)' : '') + (res.has_password ? ' \u2022 password protected' : ''));
+      })
+      .catch(function(err) {
+        box.style.color = 'var(--red)';
+        box.textContent = 'Error: ' + err.message;
       });
     });
   });
