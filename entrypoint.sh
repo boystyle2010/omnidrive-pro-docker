@@ -1486,13 +1486,33 @@ button:active { transform:scale(.98); }
             
             cfg_link = os.path.join(ROOT_DIR, "config")
             cfg_dir = os.path.realpath(cfg_link) if os.path.exists(cfg_link) else os.path.realpath(os.path.join(ROOT_DIR, "storage"))
+            
             try:
                 if target_mode == "automations" and os.path.exists(cfg_link):
+                    # HA mode
                     zip_name = f"quick_automations_{stamp}.zip"
                     zip_path = os.path.join(backup_dir, zip_name)
                     cmd = ["zip", "-r", "-q", zip_path, "automations.yaml", "scripts.yaml", "scenes.yaml", "configuration.yaml", "automations", "packages"]
                     subprocess.run(cmd, cwd=cfg_dir, check=False, timeout=60, **run_as_kwargs())
+                elif target_mode == "storage":
+                    # Docker mode
+                    zip_name = f"backup_storage_{stamp}.zip"
+                    zip_path = os.path.join(backup_dir, zip_name)
+                    storage_dir = os.path.realpath(os.path.join(ROOT_DIR, "storage"))
+                    cmd = ["zip", "-r", "-q", zip_path, ".", "-x", "backup/*", "*.db*", "*.log*"]
+                    subprocess.run(cmd, cwd=storage_dir, check=False, timeout=120, **run_as_kwargs())
+                elif target_mode == "current":
+                    # Docker mode
+                    cwd_rel = body.get("cwd", "/")
+                    current_dir = os.path.realpath(safe_resolve(cwd_rel))
+                    if not os.path.isdir(current_dir):
+                        raise Exception("Current folder is not valid.")
+                    zip_name = f"backup_current_{stamp}.zip"
+                    zip_path = os.path.join(backup_dir, zip_name)
+                    cmd = ["zip", "-r", "-q", zip_path, ".", "-x", "backup/*", "*.db*", "*.log*"]
+                    subprocess.run(cmd, cwd=current_dir, check=False, timeout=120, **run_as_kwargs())
                 else:
+                    # HA mode default
                     zip_name = f"quick_snapshot_{stamp}.zip"
                     zip_path = os.path.join(backup_dir, zip_name)
                     cmd = ["zip", "-r", "-q", zip_path, ".", "-x", "backup/*", "*.db*", "*.log*"]
