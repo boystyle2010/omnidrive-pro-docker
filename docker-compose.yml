@@ -8,24 +8,62 @@ services:
     labels:
       icon: "https://raw.githubusercontent.com/boystyle2010/omnidrive-pro-docker/main/icon.png"
       name: "OmniDrive Pro"
-      web: "8099"
+      web: "8090"
     environment:
       - TZ=America/Denver
-      # !!! CHANGE THIS PASSWORD before exposing the service !!!
+
+      # !!! CHANGE THIS PASSWORD before first start !!!
       - OMNI_USER=admin
       - OMNI_PASS=changeme_strong_password
+
       - SMB_ENABLED=true
       - SFTP_ENABLED=true
       - FTP_ENABLED=true
       - FANCY_UI=true
       - SHOW_DOTFILES=true
+
+      # Web Terminal runs shell commands as root inside the container.
+      # Disabled by default. Set to true only if you trust everyone who can log in
+      # and the service is not reachable from untrusted networks.
+      - ENABLE_TERMINAL=false
+
+      # Root access.
+      #   false (default): everything runs as the normal user "omnidrive" (PUID:PGID) and can only touch
+      #          what that user may touch. Make sure PUID/PGID own the folders you want to manage
+      #          (the 4 data volumes are fixed automatically, a mounted host folder is NOT touched).
+      #   true : file operations, Web Terminal and zip jobs run as root -> full file-manager power.
+      #          Needed to manage system / other users' files (e.g. a mounted /DATA or the whole host).
+      - ROOT_ACCESS=false
+      # - PUID=1000
+      # - PGID=1000
+
+      # FTP encryption (FTPS, explicit TLS, certificate is generated automatically):
+      #   optional (default) = encrypted if the client asks for it, plain FTP still works
+      #   required           = plain FTP is refused
+      #   off                = no encryption
+      # - FTP_TLS=optional
+
+      # Root lock (default true): nothing can be created, renamed or deleted directly at the top level
+      # (Root) over WebDAV / Web UI / SFTP / FTP; the "OmniDrive" SMB share is read-only (use the named SMB shares to write).
+      # - LOCK_ROOT=true
+
       # FTP Passive Mode only: uncomment and set this to the LAN IP of the
       # machine running Docker (find it with: hostname -I).
       # Without it, FTP clients may hang when listing folders.
       # Not needed for Web UI, WebDAV, SMB or SFTP.
       # - FTP_PASV_ADDRESS=192.168.1.100
+
+      # Reverse proxy / Cloudflare Tunnel / Nginx Proxy Manager users:
+      # list the IP or subnet your proxy connects from (comma-separated) so the real
+      # client IP is used for the audit log, rate limiting and login lockout.
+      # Default: 127.0.0.0/8,172.16.0.0/12 (loopback + Docker networks). Use "none" to disable.
+      # - TRUSTED_PROXIES=192.168.1.10,172.16.0.0/12
+      # - REAL_IP_HEADER=X-Forwarded-For
+
+      # Largest folder (in MB) that can be downloaded as a zip via a share link.
+      # - SHARE_ZIP_MAX_MB=2048
     ports:
-      - "8099:8090"               # Web UI, WebDAV & Share Links
+      - "8090:8090"               # Web UI, WebDAV & Share Links
       - "445:445"                 # SMB / Samba
       - "2222:2222"               # SFTP
       - "2121:2121"               # FTP control port
@@ -39,18 +77,16 @@ services:
       - ./media:/media
       - ./share:/share
 
-      # 2. WARNING: mounts the ENTIRE host filesystem as /host_root
-      #    (read/write). Lets you browse and edit every file on the host.
-      #    Remove this line if you do not need full host access.
-      - /:/host_root:rw
+      # 2. OPTIONAL - FULL HOST ACCESS. Uncomment to browse/edit EVERY file on the
+      #    host (appears as /host_system). Powerful and dangerous: anyone who can
+      #    log in can read, change or delete anything on your server.
+      # - /:/host_root:rw
 
-      # 3. Optional shortcuts shown on the home screen.
-      #    Adjust or remove paths that do not exist on your system.
-      - /DATA:/mnt/DATA
-      - /home:/mnt/home
-      - /etc:/mnt/etc
-      - /opt:/mnt/opt
-      - /var/log:/mnt/var_log
+      # 3. OPTIONAL - shortcuts: any folder mounted under /mnt/<Name> appears on the
+      #    home screen and over every protocol. Adjust to folders that exist on your
+      #    system, or remove. (/DATA exists on CasaOS / ZimaOS only.)
+      # - /DATA:/mnt/DATA
+      # - /home:/mnt/home
     x-casaos:
       title:
         en_us: OmniDrive Pro
@@ -64,4 +100,4 @@ x-casaos:
   icon: https://raw.githubusercontent.com/boystyle2010/omnidrive-pro-docker/main/icon.png
   main: omnidrive-pro
   index: /
-  port_map: "8099"
+  port_map: "8090"
