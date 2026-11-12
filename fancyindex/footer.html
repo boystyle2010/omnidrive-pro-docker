@@ -1666,13 +1666,13 @@
   function openChangePasswordModal() {
     var lbl = 'display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em';
     var inp = 'display:block;width:100%;height:42px;margin:5px 0 12px;border-radius:11px;border:1px solid var(--glass-border);background:rgba(0,0,0,.35);color:var(--text);padding:0 12px;font-size:16px;box-sizing:border-box';
-    openSuiteModal(IC_SHIELD + '<span>Change password</span>',
+    openSuiteModal(IC_SHIELD + '<span>Change Password</span>',
       '<p style="margin:0 0 12px;color:var(--muted);font-size:13.5px;line-height:1.45">The new password is hashed immediately and also applied to SMB, SFTP and FTP. Your other devices are signed out.</p>' +
       '<label style="' + lbl + '">Current password<input id="cpOld" type="password" autocomplete="current-password" maxlength="128" style="' + inp + '"></label>' +
       '<label style="' + lbl + '">New password (min. 8 characters)<input id="cpNew" type="password" autocomplete="new-password" maxlength="128" style="' + inp + '"></label>' +
       '<label style="' + lbl + '">Repeat new password<input id="cpNew2" type="password" autocomplete="new-password" maxlength="128" style="' + inp + '"></label>' +
       '<div id="cpMsg" style="min-height:18px;margin:-2px 0 12px;font-size:13px;color:var(--muted)"></div>' +
-      '<button id="cpGo" class="act-btn primary" type="button" style="width:100%"><span>Change password</span></button>');
+      '<button id="cpGo" class="act-btn primary" type="button" style="width:100%"><span>Change Password</span></button>');
     var msg = document.getElementById('cpMsg');
     function fail(t) { msg.style.color = 'var(--red)'; msg.textContent = t; }
     document.getElementById('cpGo').addEventListener('click', function () {
@@ -1680,18 +1680,18 @@
       if (!o) return fail('Enter your current password.');
       if (n.length < 8) return fail('The new password needs at least 8 characters.');
       if (n !== n2) return fail('The two new passwords do not match.');
-      msg.style.color = 'var(--muted)'; msg.textContent = 'Changing password...';
+      msg.style.color = 'var(--muted)'; msg.textContent = 'Changing Password...';
       fetch(apiUrl('change_password'), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old: o, new: n }) })
         .then(function (r) { return r.json(); })
         .then(function (res) {
           if (!res.ok) return fail(res.error || 'Failed');
           if (res.env_override || (res.warnings && res.warnings.length)) {
             msg.style.color = 'var(--text)';
-            msg.innerHTML = 'Password changed.' +
+            msg.innerHTML = 'Password Changed.' +
               (res.env_override ? '<br><b>Warning:</b> <code>OMNI_PASS</code> is still set in your compose file and will overwrite this password at the next restart. Remove it.' : '') +
               (res.warnings && res.warnings.length ? '<br><b>Warning:</b> ' + esc(res.warnings.join('; ')) : '');
-          } else { showToast('Password changed'); openAuditAndSharesModal(); }
-        }).catch(function () { fail('Network error'); });
+          } else { showToast('Password Changed'); openAuditAndSharesModal(); }
+        }).catch(function () { fail('Network Error'); });
     });
   }
 
