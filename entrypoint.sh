@@ -47,12 +47,7 @@ if [ ! -f "$CONFIG_PATH" ]; then
   "fancy_ui": ${FANCY_UI:-true},
   "show_dotfiles": ${SHOW_DOTFILES:-true},
   "log_level": "${LOG_LEVEL:-info}",
-  "users": [
-    {
-      "username": "${OMNI_USER:-admin}",
-      "password": "${OMNI_PASS:-changeme_strong_password}"
-    }
-  ],
+  "users": [],
   "shares": [
     { "name": "storage", "path": "/storage", "read_only": false, "allowed_users": [] },
     { "name": "media",   "path": "/media",   "read_only": false, "allowed_users": [] },
@@ -64,8 +59,6 @@ EOF
 else
     TMP_CFG=$(mktemp)
     jq \
-      --arg u "${OMNI_USER:-}" \
-      --arg p "${OMNI_PASS:-}" \
       --arg smb "${SMB_ENABLED:-}" \
       --arg sftp "${SFTP_ENABLED:-}" \
       --arg ftp "${FTP_ENABLED:-}" \
@@ -77,7 +70,6 @@ else
       --arg dot "${SHOW_DOTFILES:-}" \
       --arg logl "${LOG_LEVEL:-}" \
       '
-      (if $u != "" and $p != "" then .users[0] = {"username": $u, "password": $p} else . end) |
       (if $smb != "" then .smb_enabled = ($smb | ascii_downcase == "true") else . end) |
       (if $sftp != "" then .sftp_enabled = ($sftp | ascii_downcase == "true") else . end) |
       (if $ftp != "" then .ftp_enabled = ($ftp | ascii_downcase == "true") else . end) |
@@ -91,6 +83,8 @@ else
       ' "$CONFIG_PATH" > "$TMP_CFG" && mv "$TMP_CFG" "$CONFIG_PATH"
     log_info "Synced environment variables into ${CONFIG_PATH}."
 fi
+
+chmod 600 "$CONFIG_PATH" 2>/dev/null || true
 
 cfg_val() {
     jq -r "$1" "$CONFIG_PATH"
@@ -110,9 +104,41 @@ SHOW_DOTFILES=$(cfg_val '.show_dotfiles // true')
 LOG_LEVEL=$(cfg_val '.log_level // "info"')
 PASV_ADDRESS="${FTP_PASV_ADDRESS:-}"
 
+# 1b. Privilege mode.
+#     ROOT_ACCESS=true : WebDAV/Web UI, Samba and the Terminal act as root -> full file-manager power.
+#     ROOT_ACCESS=false (default): everything acts as the unprivileged user "omnidrive" (PUID:PGID) and can only touch what that user may touch.
+#     (RUN_AS_ROOT is accepted as an old name for ROOT_ACCESS.)
+RUN_AS_ROOT_VAL="${ROOT_ACCESS:-${RUN_AS_ROOT:-false}}"
+PUID="${PUID:-1000}"
+PGID="${PGID:-1000}"
+RUN_USER="root"
+RUN_GROUP="root"
+if ! is_true "$RUN_AS_ROOT_VAL"; then
+    [[ "$PUID" =~ ^[0-9]+$ && "$PGID" =~ ^[0-9]+$ ]] || exit_nok "PUID and PGID must be numbers (got PUID=${PUID} PGID=${PGID})."
+    { [ "$PUID" -ne 0 ] && [ "$PGID" -ne 0 ]; } || exit_nok "ROOT_ACCESS=false needs a non-zero PUID/PGID."
+    RUN_GROUP=$(getent group "$PGID" | cut -d: -f1)
+    if [ -z "$RUN_GROUP" ]; then addgroup -g "$PGID" omnidrive >/dev/null 2>&1 || true; RUN_GROUP=omnidrive; fi
+    RUN_USER=$(getent passwd "$PUID" | cut -d: -f1)
+    if [ -z "$RUN_USER" ]; then
+        adduser -D -H -h /var/webdav_root -s /sbin/nologin -u "$PUID" -G "$RUN_GROUP" omnidrive >/dev/null 2>&1 || true
+        RUN_USER=omnidrive
+    fi
+    # Let the unprivileged user write to the volumes (top-level folder only, never recursive).
+    for _d in /storage /media /share /backup; do
+        if [ -d "$_d" ] && [ "$(stat -c %u "$_d" 2>/dev/null)" = "0" ]; then chown "${PUID}:${PGID}" "$_d" 2>/dev/null || true; fi
+    done
+    chown -R "${PUID}:${PGID}" /var/lib/nginx 2>/dev/null || true
+    log_info "Privilege mode: unprivileged (${RUN_USER}:${RUN_GROUP}, uid ${PUID}, gid ${PGID})."
+else
+    log_warn "Privilege mode: ROOT (ROOT_ACCESS=true) - file operations can touch anything inside the container and every mounted folder."
+fi
+export RUN_AS_ROOT="$RUN_AS_ROOT_VAL" PUID PGID
+LOCK_ROOT_VAL="${LOCK_ROOT:-true}"
+
 # 2. Chuẩn bị thư mục gốc hợp nhất (/var/webdav_root)
 mkdir -p "$ROOT_DIR"
-rm -rf "${ROOT_DIR:?}"/*
+# Rebuild only the symlinks (shares / auto-mounts). Real files stray-created at Root survive a restart.
+find "${ROOT_DIR:?}" -mindepth 1 -maxdepth 1 -type l -delete
 
 # 2A. Gắn các thư mục được khai báo trong options.json
 SHARES_COUNT=$(jq '.shares | length' "$CONFIG_PATH")
@@ -143,39 +169,173 @@ for dir in /mnt/*; do
     fi
 done
 
-# 3. Tạo tài khoản cho WebDAV (htpasswd) VÀ Linux System Users (cho SMB, SFTP & FTP)
-rm -f "$HTPASSWD_FILE"
-touch "$HTPASSWD_FILE"
-
-USERS_COUNT=$(jq '.users | length' "$CONFIG_PATH")
-if [ "$USERS_COUNT" -eq 0 ]; then
-    exit_nok "Error: you must define at least one account under 'users' in ${CONFIG_PATH}!"
+# 3. Accounts: hash passwords, then provision Linux users (SMB / SFTP / FTP).
+#    options.json never keeps a plaintext password after this step (PBKDF2 hash + salted sha512-crypt hash).
+if is_true "$SMB_ENABLED"; then
+    # Keep the Samba password database in /data so SMB logins survive container re-creation.
+    mkdir -p /var/lib/samba /data/wpro/samba
+    chmod 700 /data/wpro/samba
+    if [ ! -L /var/lib/samba/private ]; then
+        cp -a /var/lib/samba/private/. /data/wpro/samba/ 2>/dev/null || true
+        rm -rf /var/lib/samba/private
+        ln -s /data/wpro/samba /var/lib/samba/private
+    fi
 fi
 
-FIRST_USER=""
-for (( i=0; i<USERS_COUNT; i++ )); do
-    USERNAME=$(jq -r ".users[$i].username" "$CONFIG_PATH")
-    PASSWORD=$(jq -r ".users[$i].password" "$CONFIG_PATH")
-    if [ -n "$USERNAME" ] && [ -n "$PASSWORD" ]; then
-        [ -z "$FIRST_USER" ] && FIRST_USER="$USERNAME"
-        htpasswd -Bb "$HTPASSWD_FILE" "$USERNAME" "$PASSWORD" >/dev/null 2>&1
+cat << 'USEREOF' > /usr/local/bin/wpro_users.py
+#!/usr/bin/env python3
+import os, sys, re, json, hmac, hashlib, secrets, subprocess
 
-        if ! id "$USERNAME" >/dev/null 2>&1; then
-            adduser -D -H -h "$ROOT_DIR" -s /bin/bash -G root "$USERNAME" >/dev/null 2>&1 || true
-        fi
-        echo "${USERNAME}:${PASSWORD}" | chpasswd >/dev/null 2>&1 || true
-        (echo "$PASSWORD"; echo "$PASSWORD") | smbpasswd -a -s "$USERNAME" >/dev/null 2>&1 || true
-        smbpasswd -e "$USERNAME" >/dev/null 2>&1 || true
+CFG = "/data/options.json"
+ROOT_DIR = "/var/webdav_root"
+ITER = 200000
+SMB = os.environ.get("SMB_ENABLED_RESOLVED", "true") == "true"
+RUN_USER = os.environ.get("RUN_USER_RESOLVED", "root")
+PUID = os.environ.get("PUID", "1000")
+PGID = os.environ.get("PGID", "1000")
 
-        log_info "Provisioned multi-protocol account: ${USERNAME}"
-    fi
-done
+def log(msg): print("[INFO] " + msg, flush=True)
+def warn(msg): print("[WARN] " + msg, flush=True)
 
-chmod -R 775 "$ROOT_DIR" || true
+def make_hash(pw):
+    salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), bytes.fromhex(salt), ITER).hex()
+    return "pbkdf2_sha256$%d$%s$%s" % (ITER, salt, h)
+
+def check_hash(stored, pw):
+    try:
+        algo, it, salt, h = stored.split("$")
+        if algo != "pbkdf2_sha256":
+            return False
+        calc = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), bytes.fromhex(salt), int(it)).hex()
+        return hmac.compare_digest(calc, h)
+    except Exception:
+        return False
+
+def run(args, inp=None):
+    return subprocess.run(args, input=inp, capture_output=True, text=True)
+
+def crypt_hash(pw):
+    r = run(["openssl", "passwd", "-6", "-stdin"], pw + "\n")
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.startswith("$6$") else ""
+
+try:
+    with open(CFG, encoding="utf-8") as f:
+        cfg = json.load(f)
+except Exception as e:
+    print("[ERROR] cannot read options.json: %s" % e); sys.exit(1)
+
+users = cfg.get("users") or []
+
+env_user = os.environ.get("OMNI_USER", "").strip()
+env_pass = os.environ.get("OMNI_PASS", "")
+pass_file = os.environ.get("OMNI_PASS_FILE", "")
+if pass_file:
+    try:
+        env_pass = open(pass_file, encoding="utf-8").read().rstrip("\r\n")
+    except Exception as e:
+        warn("OMNI_PASS_FILE unreadable: %s" % e)
+if not users and not (env_user and env_pass):
+    env_user, env_pass = "admin", "changeme_strong_password"   # first-run default, hashed immediately
+if env_user and env_pass:
+    if users and not pass_file and os.environ.get("OMNI_PASS"):
+        log("OMNI_PASS is set in the environment (plain text in your compose file). Once the first start succeeded you can delete it: the hashed account in options.json keeps working.")
+    if users and users[0].get("username") == env_user:
+        users[0]["password"] = env_pass                        # plaintext is hashed below
+    else:
+        users[0:1] = [{"username": env_user, "password": env_pass}] if users else [{"username": env_user, "password": env_pass}]
+
+plain = {}   # plaintext known right now (never written back to disk)
+out = []
+for u in users:
+    name = str(u.get("username", "")).strip()
+    if not name or ":" in name or "\n" in name or len(name) > 32:
+        warn("Skipping invalid username %r" % name); continue
+    pw = u.get("password")
+    entry = {"username": name}
+    # keep any extra fields the admin added
+    for k, v in u.items():
+        if k not in ("username", "password", "password_hash", "crypt_hash"):
+            entry[k] = v
+    if pw:
+        plain[name] = pw
+        old = u.get("password_hash", "")
+        if old and check_hash(old, pw):
+            entry["password_hash"] = old
+            entry["crypt_hash"] = u.get("crypt_hash") or crypt_hash(pw)
+        else:
+            entry["password_hash"] = make_hash(pw)
+            entry["crypt_hash"] = crypt_hash(pw)
+    else:
+        entry["password_hash"] = u.get("password_hash", "")
+        entry["crypt_hash"] = u.get("crypt_hash", "")
+        if not entry["password_hash"]:
+            warn("User %s has no password: skipped" % name); continue
+    out.append(entry)
+
+if not out:
+    print("[ERROR] you must define at least one account under 'users' in %s" % CFG); sys.exit(1)
+
+cfg["users"] = out
+tmp = CFG + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, indent=2)
+os.chmod(tmp, 0o600)
+os.replace(tmp, CFG)
+
+if "admin" in plain and plain["admin"] == "changeme_strong_password" or \
+   any(check_hash(e["password_hash"], "changeme_strong_password") for e in out):
+    warn("A user still has the DEFAULT password 'changeme_strong_password'. Change OMNI_PASS now!")
+
+for e in out:
+    name = e["username"]
+    if run(["id", name]).returncode != 0:
+        run(["adduser", "-D", "-H", "-h", ROOT_DIR, "-s", "/bin/bash", "-G", "root", name])
+    if name in plain:
+        r = run(["chpasswd"], "%s:%s\n" % (name, plain[name]))
+    elif e.get("crypt_hash"):
+        r = run(["chpasswd", "-e"], "%s:%s\n" % (name, e["crypt_hash"]))
+    else:
+        r = None
+    if r is not None and r.returncode != 0:
+        warn("Could not set the system password of %s (SFTP/FTP login may fail): %s" % (name, r.stderr.strip()))
+    if RUN_USER != "root":
+        try:
+            lines = open("/etc/passwd").read().splitlines()
+            for i, ln in enumerate(lines):
+                f = ln.split(":")
+                if f[0] == name and len(f) >= 4:
+                    f[2], f[3] = PUID, PGID
+                    lines[i] = ":".join(f)
+            open("/etc/passwd", "w").write("\n".join(lines) + "\n")
+        except Exception as ex:
+            warn("uid/gid rewrite failed for %s: %s" % (name, ex))
+    if SMB:
+        if name in plain:
+            run(["smbpasswd", "-a", "-s", name], "%s\n%s\n" % (plain[name], plain[name]))
+            run(["smbpasswd", "-e", name])
+        elif run(["pdbedit", "-L", "-u", name]).returncode != 0:
+            warn("SMB password of %s is not stored yet. Set OMNI_PASS (or put a temporary 'password' for this user in options.json) and restart." % name)
+    log("Provisioned multi-protocol account: " + name)
+USEREOF
+
+SMB_ENABLED_RESOLVED="$SMB_ENABLED" RUN_USER_RESOLVED="$RUN_USER" python3 /usr/local/bin/wpro_users.py || exit_nok "Account provisioning failed."
+
+# Root lock: files/folders cannot be created, renamed or deleted directly at Root (only inside a share / folder).
+if is_true "$LOCK_ROOT_VAL"; then
+    chmod 0555 "$ROOT_DIR" || true
+    log_info "Root lock: ON (nothing can be created directly at Root; use a share / folder). Set LOCK_ROOT=false to disable."
+else
+    chmod 0775 "$ROOT_DIR" || true
+fi
 
 # 4. Khởi động SMB / Samba Server (Port 445)
 if is_true "$SMB_ENABLED"; then
     mkdir -p /var/lib/samba/private /var/log/samba /run/samba
+    # Samba cannot make only the top level read-only, so with the Root lock the unified [OmniDrive]
+    # share is browse/read-only; write through the named shares (storage, media, share, backup, ...).
+    ROOT_WRITABLE="yes"
+    is_true "$LOCK_ROOT_VAL" && ROOT_WRITABLE="no"
     cat <<EOF > /etc/samba/smb.conf
 [global]
    workgroup = WORKGROUP
@@ -187,8 +347,8 @@ if is_true "$SMB_ENABLED"; then
    unix extensions = no
    wide links = yes
    follow symlinks = yes
-   force user = root
-   force group = root
+   force user = ${RUN_USER}
+   force group = ${RUN_GROUP}
    create mask = 0664
    directory mask = 0775
    load printers = no
@@ -199,7 +359,7 @@ if is_true "$SMB_ENABLED"; then
 [OmniDrive]
    path = ${ROOT_DIR}
    browseable = yes
-   writable = yes
+   writable = ${ROOT_WRITABLE}
    guest ok = no
 EOF
 
@@ -216,8 +376,8 @@ EOF
    browseable = yes
    writable = ${WRITABLE}
    guest ok = no
-   force user = root
-   force group = root
+   force user = ${RUN_USER}
+   force group = ${RUN_GROUP}
 EOF
     done
 
@@ -229,8 +389,8 @@ EOF
    browseable = yes
    writable = yes
    guest ok = no
-   force user = root
-   force group = root
+   force user = ${RUN_USER}
+   force group = ${RUN_GROUP}
 EOF
     fi
 
@@ -245,8 +405,8 @@ EOF
    browseable = yes
    writable = yes
    guest ok = no
-   force user = root
-   force group = root
+   force user = ${RUN_USER}
+   force group = ${RUN_GROUP}
 EOF
             fi
         fi
@@ -299,6 +459,50 @@ EOF
     if [ -n "$PASV_ADDRESS" ]; then
         echo "pasv_address=${PASV_ADDRESS}" >> /etc/vsftpd/vsftpd.conf
     fi
+    # FTPS (explicit TLS). FTP_TLS=optional (default) | required | off
+    FTP_TLS_MODE=$(echo "${FTP_TLS:-optional}" | tr 'A-Z' 'a-z')
+    case "$FTP_TLS_MODE" in optional|required|off) ;; *) exit_nok "FTP_TLS must be optional, required or off (got '${FTP_TLS}')." ;; esac
+    if [ "$FTP_TLS_MODE" != "off" ]; then
+        FTP_CRT=""; FTP_KEY=""
+        if [ -f "/ssl/${CERTFILE}" ] && [ -f "/ssl/${KEYFILE}" ]; then
+            FTP_CRT="/ssl/${CERTFILE}"; FTP_KEY="/ssl/${KEYFILE}"
+        else
+            FTP_CRT="/data/wpro/ftp-cert.pem"; FTP_KEY="/data/wpro/ftp-key.pem"
+            if [ ! -s "$FTP_CRT" ] || [ ! -s "$FTP_KEY" ]; then
+                openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=omnidrive-pro" \
+                    -keyout "$FTP_KEY" -out "$FTP_CRT" >/dev/null 2>&1 || true
+                chmod 600 "$FTP_KEY" 2>/dev/null || true
+            fi
+        fi
+        if [ -s "$FTP_CRT" ] && [ -s "$FTP_KEY" ]; then
+            FORCE="NO"; [ "$FTP_TLS_MODE" = "required" ] && FORCE="YES"
+            cat <<EOF >> /etc/vsftpd/vsftpd.conf
+ssl_enable=YES
+rsa_cert_file=${FTP_CRT}
+rsa_private_key_file=${FTP_KEY}
+allow_anon_ssl=NO
+force_local_logins_ssl=${FORCE}
+force_local_data_ssl=${FORCE}
+ssl_sslv2=NO
+ssl_sslv3=NO
+ssl_tlsv1=NO
+ssl_tlsv1_1=NO
+ssl_tlsv1_2=YES
+ssl_ciphers=HIGH
+require_ssl_reuse=NO
+EOF
+            log_info "FTPS (explicit TLS) enabled, mode: ${FTP_TLS_MODE}."
+        elif [ "$FTP_TLS_MODE" = "required" ]; then
+            exit_nok "FTP_TLS=required but no TLS certificate could be created."
+        else
+            log_warn "Could not create an FTPS certificate: FTP stays unencrypted."
+        fi
+    else
+        log_warn "FTP_TLS=off: FTP passwords and files are sent in clear text."
+    fi
+    if [ "$RUN_USER" != "root" ]; then
+        printf 'guest_enable=YES\nguest_username=%s\n' "$RUN_USER" >> /etc/vsftpd/vsftpd.conf
+    fi
     vsftpd /etc/vsftpd/vsftpd.conf >/dev/null 2>&1 &
     log_info "Protocol [FTP] active on port 2121 (Passive ports: 21000-21002)"
 fi
@@ -345,12 +549,29 @@ else
     "
 fi
 
+# 8b. Root lock for WebDAV / Web UI: only the top level is protected; everything inside a share stays writable.
+ROOT_LOCK_RULES=""
+if is_true "$LOCK_ROOT_VAL"; then
+    ROOT_LOCK_RULES=$(cat <<'LOCKEOF'
+            # --- Root lock: block create / delete / rename directly at Root (e.g. "/name" or "/name/") ---
+            set $wpro_rl "";
+            if ($request_method ~ "^(PUT|MKCOL|DELETE|MOVE)$") { set $wpro_rl "m"; }
+            if ($uri ~ "^/[^/]+/?$") { set $wpro_rl "${wpro_rl}u"; }
+            if ($wpro_rl = "mu") { return 403 "Blocked: files and folders cannot be created, renamed or deleted directly at Root. Open a folder first."; }
+            set $wpro_rd "";
+            if ($request_method ~ "^(COPY|MOVE)$") { set $wpro_rd "m"; }
+            if ($http_destination ~ "^(https?://[^/]+)?/[^/]+/?$") { set $wpro_rd "${wpro_rd}d"; }
+            if ($wpro_rd = "md") { return 403 "Blocked: the destination is directly at Root. Choose a folder."; }
+LOCKEOF
+)
+fi
+
 git config --system --add safe.directory '*' || true
 
 # 9. Tạo Python Backend API + Hybrid Auth Engine
 cat << 'PYEOF' > /usr/local/bin/wpro_api.py
 #!/usr/bin/env python3
-import os, sys, json, time, hmac, hashlib, base64, shutil, secrets, tempfile, subprocess, threading, urllib.parse
+import os, sys, json, time, hmac, hashlib, base64, shutil, secrets, tempfile, subprocess, threading, html, urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 from datetime import datetime
@@ -361,10 +582,15 @@ CONFIG_PATH = "/data/options.json"
 SHARES_FILE = os.path.join(DATA_DIR, "shares.json")
 AUDIT_FILE = os.path.join(DATA_DIR, "audit.jsonl")
 SECRET_FILE = os.path.join(DATA_DIR, "session.secret")
+SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
 
 if not os.path.exists(SECRET_FILE):
     with open(SECRET_FILE, "w") as f:
         f.write(secrets.token_hex(32))
+try:
+    os.chmod(SECRET_FILE, 0o600)
+except Exception:
+    pass
 with open(SECRET_FILE, "r") as f:
     SESSION_SECRET = f.read().strip().encode("utf-8")
 
@@ -375,15 +601,52 @@ def get_config():
     except Exception:
         return {}
 
+# Passwords are stored as "pbkdf2_sha256$iterations$salt$hash". A legacy plaintext "password" field is still
+# accepted (and is converted to a hash at the next container start).
+PW_CACHE = {}
+PW_CACHE_KEY = secrets.token_bytes(32)
+PW_CACHE_TTL = 300
+PW_CACHE_LOCK = threading.Lock()
+_DUMMY_HASH = "pbkdf2_sha256$200000$" + "00" * 16 + "$" + "00" * 32
+
+def _pbkdf2_check(stored, password):
+    try:
+        algo, it, salt, h = stored.split("$")
+        if algo != "pbkdf2_sha256":
+            return False
+        it = max(1, min(int(it), 5000000))
+        calc = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), it).hex()
+        return hmac.compare_digest(calc, h)
+    except Exception:
+        return False
+
 def verify_credentials(username, password):
-    # Constant-time comparison; always walks every user so timing does not leak which one matched.
+    # Constant-time style: every request pays one PBKDF2 (or a cache hit), whether or not the user exists.
     cfg = get_config()
-    ok = False
+    found = None
     for u in cfg.get("users", []):
-        user_ok = hmac.compare_digest(str(u.get("username", "")).encode("utf-8"), str(username).encode("utf-8"))
-        pass_ok = hmac.compare_digest(str(u.get("password", "")).encode("utf-8"), str(password).encode("utf-8"))
-        if user_ok and pass_ok:
-            ok = True
+        if hmac.compare_digest(str(u.get("username", "")).encode("utf-8"), str(username).encode("utf-8")):
+            found = u
+    stored = (found or {}).get("password_hash", "") if found else ""
+    legacy = (found or {}).get("password", "") if found else ""
+    ck = hmac.new(PW_CACHE_KEY, ("%s\0%s\0%s\0%s" % (username, password, stored, legacy)).encode("utf-8"), hashlib.sha256).hexdigest()
+    now = time.time()
+    with PW_CACHE_LOCK:
+        if found and PW_CACHE.get(ck, 0) > now:
+            return True
+    if found and stored:
+        ok = _pbkdf2_check(stored, str(password))
+    elif found and legacy:
+        ok = hmac.compare_digest(str(legacy).encode("utf-8"), str(password).encode("utf-8"))
+    else:
+        _pbkdf2_check(_DUMMY_HASH, str(password))
+        ok = False
+    if ok:
+        with PW_CACHE_LOCK:
+            if len(PW_CACHE) > 2000:
+                for k in [k for k, t in PW_CACHE.items() if t <= now]:
+                    PW_CACHE.pop(k, None)
+            PW_CACHE[ck] = now + PW_CACHE_TTL
     return ok
 
 # --- Login brute-force protection (per client IP + username) ---
@@ -407,43 +670,244 @@ def login_ok(key):
     with LOGIN_LOCK:
         LOGIN_FAILS.pop(key, None)
 
+# Web Terminal (/exec). Set ENABLE_TERMINAL=false to disable it completely.
+TERMINAL_ENABLED = os.environ.get("ENABLE_TERMINAL", "true").strip().lower() in ("true", "1", "yes", "on")
+
+# Privilege mode. RUN_AS_ROOT=true (default): file operations, Terminal and zip jobs run as root.
+# RUN_AS_ROOT=false: they run as PUID:PGID, so they can only touch what that user may touch.
+RUN_AS_ROOT = os.environ.get("RUN_AS_ROOT", "true").strip().lower() in ("true", "1", "yes", "on")
+try:
+    RUN_UID = int(os.environ.get("PUID", "1000"))
+    RUN_GID = int(os.environ.get("PGID", "1000"))
+except ValueError:
+    RUN_UID, RUN_GID = 1000, 1000
+
+def run_as_kwargs():
+    if RUN_AS_ROOT:
+        return {}
+    return {"user": RUN_UID, "group": RUN_GID, "extra_groups": []}
+
+def child_env():
+    env = dict(os.environ)
+    if not RUN_AS_ROOT:
+        env["HOME"] = "/tmp"
+    return env
+
+def user_can_read(path):
+    # In unprivileged mode this Python process is still root, so ask the OS on behalf of PUID/PGID.
+    if RUN_AS_ROOT:
+        return True
+    try:
+        return subprocess.run(["test", "-r", path], timeout=5, **run_as_kwargs()).returncode == 0
+    except Exception:
+        return False
+
 # Folders larger than this cannot be shared as a zip (protects the host disk / CPU).
 SHARE_ZIP_MAX = int(os.environ.get("SHARE_ZIP_MAX_MB", "2048")) * 1024 * 1024
 
-def create_session_token(username, ttl=2592000):
-    exp = int(time.time()) + ttl
-    payload = f"{username}|{exp}"
-    sig = hmac.new(SESSION_SECRET, payload.encode("utf-8"), hashlib.sha256).hexdigest()
-    return base64.urlsafe_b64encode(f"{payload}|{sig}".encode("utf-8")).decode("utf-8")
+# --- Server-side sessions: every login is a revocable record (device list + instant sign-out) ---
+SESS_LOCK = threading.RLock()
+SESSIONS = {}
 
-def verify_session_token(token):
+def _sess_save():
     try:
-        raw = base64.urlsafe_b64decode(token.encode("utf-8")).decode("utf-8")
-        username, exp_str, sig = raw.split("|", 2)
-        if int(exp_str) < time.time():
-            return None
-        expected = hmac.new(SESSION_SECRET, f"{username}|{exp_str}".encode("utf-8"), hashlib.sha256).hexdigest()
-        if hmac.compare_digest(sig, expected):
-            return username
+        tmp = SESSIONS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(SESSIONS, f)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, SESSIONS_FILE)
     except Exception:
         pass
-    return None
 
-def load_shares():
+def _sess_load():
+    global SESSIONS
     try:
-        with open(SHARES_FILE, "r", encoding="utf-8") as f:
+        with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         now = time.time()
-        cleaned = {k: v for k, v in data.items() if v.get("exp", 0) > now}
-        if len(cleaned) != len(data):
-            save_shares(cleaned)
-        return cleaned
+        SESSIONS = {k: v for k, v in data.items() if v.get("exp", 0) > now}
     except Exception:
-        return {}
+        SESSIONS = {}
+
+_sess_load()
+
+def _sess_sign(sid):
+    return hmac.new(SESSION_SECRET, sid.encode("utf-8"), hashlib.sha256).hexdigest()
+
+DEVICES_FILE = os.path.join(DATA_DIR, "known_devices.json")
+
+def _device_fp(user, ua):
+    # Version numbers are stripped so a browser update is not reported as a new device.
+    import re as _re
+    norm = _re.sub(r"[0-9._]+", "", ua or "")
+    return hashlib.sha256((user + "|" + norm).encode("utf-8")).hexdigest()[:20]
+
+def _is_new_device(user, ua):
+    """True when this user has signed in before, but never from this kind of device/browser."""
+    fp = _device_fp(user, ua)
+    try:
+        with open(DEVICES_FILE, "r", encoding="utf-8") as f:
+            known = json.load(f)
+    except Exception:
+        known = []
+    new = bool(known) and fp not in known
+    if fp not in known:
+        known = (known + [fp])[-300:]
+        try:
+            tmp = DEVICES_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(known, f)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, DEVICES_FILE)
+        except Exception:
+            pass
+    return new
+
+def create_session(username, ttl, ip, ua):
+    now = int(time.time())
+    sid = secrets.token_urlsafe(12)
+    with SESS_LOCK:
+        for k in [k for k, v in SESSIONS.items() if v.get("exp", 0) <= now]:
+            SESSIONS.pop(k, None)
+        SESSIONS[sid] = {"user": username, "created": now, "last_seen": now, "exp": now + ttl,
+                         "ip": ip, "last_ip": ip, "ua": (ua or "")[:200], "new": _is_new_device(username, ua)}
+        _sess_save()
+    return sid + "." + _sess_sign(sid)
+
+def rotate_secret():
+    """Sign out EVERYONE (including the caller) and invalidate every cookie ever issued by replacing the signing key."""
+    global SESSION_SECRET
+    with SESS_LOCK:
+        new = secrets.token_hex(32)
+        tmp = SECRET_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(new)
+        try:
+            os.chmod(tmp, 0o600)
+        except Exception:
+            pass
+        os.replace(tmp, SECRET_FILE)
+        SESSION_SECRET = new.encode("utf-8")
+        n = len(SESSIONS)
+        SESSIONS.clear()
+        _sess_save()
+        return n
+
+def user_exists(username):
+    return any(u.get("username") == username for u in get_config().get("users", []))
+
+def verify_session_token(token, ip=None):
+    """Returns (username, sid) for a valid, non-revoked, non-expired session, else (None, None)."""
+    try:
+        sid, sig = token.rsplit(".", 1)
+        if not hmac.compare_digest(sig, _sess_sign(sid)):
+            return None, None
+        now = int(time.time())
+        with SESS_LOCK:
+            sess = SESSIONS.get(sid)
+            if not sess or sess.get("exp", 0) < now:
+                return None, None
+            if not user_exists(sess["user"]):
+                return None, None
+            if now - sess.get("last_seen", 0) >= 60 or (ip and ip != sess.get("last_ip")):
+                sess["last_seen"] = now
+                if ip:
+                    sess["last_ip"] = ip
+                _sess_save()
+            return sess["user"], sid
+    except Exception:
+        pass
+    return None, None
+
+def revoke_session(sid):
+    with SESS_LOCK:
+        existed = SESSIONS.pop(sid, None) is not None
+        if existed:
+            _sess_save()
+        return existed
+
+def revoke_other_sessions(keep_sid):
+    with SESS_LOCK:
+        gone = [k for k in SESSIONS if k != keep_sid]
+        for k in gone:
+            SESSIONS.pop(k, None)
+        if gone:
+            _sess_save()
+        return len(gone)
+
+def list_sessions(current_sid):
+    now = int(time.time())
+    with SESS_LOCK:
+        items = []
+        for sid, v in SESSIONS.items():
+            if v.get("exp", 0) <= now:
+                continue
+            items.append({"sid": sid, "user": v.get("user"), "ip": v.get("ip"), "last_ip": v.get("last_ip"),
+                          "ua": v.get("ua", ""), "created": v.get("created"), "last_seen": v.get("last_seen"),
+                          "exp": v.get("exp"), "current": sid == current_sid,
+                          "new": bool(v.get("new")) and (now - v.get("created", 0) < 604800),
+                          "ack": bool(v.get("ack"))})
+    items.sort(key=lambda x: (not x["current"], -(x["last_seen"] or 0)))
+    return items
+
+SHARE_LOCK = threading.RLock()
+
+def load_shares():
+    with SHARE_LOCK:
+        try:
+            with open(SHARES_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            now = time.time()
+            def alive(v):
+                mu = int(v.get("max_uses", 0) or 0)
+                return v.get("exp", 0) > now and (mu == 0 or int(v.get("uses", 0)) < mu)
+            cleaned = {k: v for k, v in data.items() if alive(v)}
+            if len(cleaned) != len(data):
+                save_shares(cleaned)
+            return cleaned
+        except Exception:
+            return {}
 
 def save_shares(data):
-    with open(SHARES_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    with SHARE_LOCK:
+        tmp = SHARES_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        try:
+            os.chmod(tmp, 0o600)
+        except Exception:
+            pass
+        os.replace(tmp, SHARES_FILE)
+
+def hash_share_pw(password, salt=None):
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), 200000).hex()
+    return salt, digest
+
+def check_share_pw(info, password):
+    salt, expected = info.get("pw_salt"), info.get("pw_hash")
+    if not salt or not expected:
+        return True
+    return hmac.compare_digest(hash_share_pw(password, salt)[1], expected)
+
+def consume_share_use(token):
+    """Atomically spend one download/access. False when the link is gone, expired or used up."""
+    with SHARE_LOCK:
+        data = load_shares()
+        info = data.get(token)
+        if not info:
+            return False
+        max_uses = int(info.get("max_uses", 0) or 0)
+        uses = int(info.get("uses", 0))
+        if max_uses and uses >= max_uses:
+            return False
+        info["uses"] = uses + 1
+        save_shares(data)
+        return True
+
+def content_disposition(fname):
+    ascii_name = "".join(c if (32 <= ord(c) < 127 and c not in '"\\;') else "_" for c in fname) or "download"
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{urllib.parse.quote(fname)}'
 
 def append_audit(user, method, path, status=200, ip="local"):
     entry = {
@@ -486,15 +950,20 @@ class WProHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+    def client_ip(self):
+        return self.headers.get("X-Real-IP", self.client_address[0])
+
     def get_auth_user(self):
+        self.sid = None
         cookie_hdr = self.headers.get("Cookie", "")
         if cookie_hdr:
             c = SimpleCookie()
             try:
                 c.load(cookie_hdr)
                 if "wpro_sess" in c:
-                    u = verify_session_token(c["wpro_sess"].value)
+                    u, sid = verify_session_token(c["wpro_sess"].value, self.client_ip())
                     if u:
+                        self.sid = sid
                         return u
             except Exception:
                 pass
@@ -503,8 +972,14 @@ class WProHandler(BaseHTTPRequestHandler):
             try:
                 decoded = base64.b64decode(auth_hdr[6:].strip()).decode("utf-8")
                 uname, upass = decoded.split(":", 1)
+                ip = self.headers.get("X-Real-IP", self.client_address[0])
+                lock_key = ip + "|" + uname.lower()
+                if login_locked(lock_key):
+                    return None
                 if verify_credentials(uname, upass):
+                    login_ok(lock_key)
                     return uname
+                login_failed(lock_key)
             except Exception:
                 pass
         return None
@@ -520,6 +995,116 @@ class WProHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
+    def share_page(self, token, info, error=None, code=200):
+        name = html.escape(info.get("name", "file"))
+        err = '<p class="err">' + html.escape(error) + '</p>' if error else ""
+        page = ("""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark">
+<title>Protected download</title><style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1933;color:#fff;
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px;box-sizing:border-box}
+.card{width:100%;max-width:380px;background:rgba(24,28,38,.8);border:1px solid rgba(255,255,255,.14);
+border-radius:22px;padding:28px 22px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.6)}
+h1{font-size:19px;margin:0 0 6px}p{color:#94a3b8;font-size:14px;margin:0 0 18px;word-break:break-word}
+input{width:100%;height:46px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(38,44,58,.9);
+color:#fff;font-size:16px;padding:0 14px;box-sizing:border-box;margin-bottom:12px;outline:none}
+input:focus{border-color:#0a84ff}button{width:100%;height:46px;border:0;border-radius:12px;background:#0a84ff;
+color:#fff;font-size:16px;font-weight:600;cursor:pointer}.err{color:#ff6961;margin:0 0 12px}
+</style></head><body><div class="card"><h1>&#128274; Password required</h1>
+<p>""" + name + """</p>""" + err + """<form method="post" action="">
+<input type="password" name="password" placeholder="Enter password" autocomplete="off" autofocus required>
+<button type="submit">Download</button></form></div></body></html>""").encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(page)))
+        self.end_headers()
+        self.wfile.write(page)
+
+    def share_gone(self, code=404, text=b"Share link expired or invalid."):
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(text)
+
+    def serve_share(self, token, info):
+        ip = self.headers.get("X-Real-IP", self.client_address[0])
+        try:
+            target = os.path.realpath(safe_resolve(info["path"]))
+            is_dir = os.path.isdir(target)
+            if not (is_dir or os.path.isfile(target)) or not user_can_read(target):
+                raise FileNotFoundError()
+            if is_dir:
+                dsz = dir_size_bytes(target)
+                if dsz is None or dsz > SHARE_ZIP_MAX:
+                    self.share_gone(413, b"Folder is too large to download as a zip. Share individual files instead.")
+                    return
+            # Spend one download only when we are really going to serve the content.
+            if not consume_share_use(token):
+                self.share_gone()
+                return
+            append_audit("share-link", "SHARE_DL", info["path"], 200, ip)
+            if is_dir:
+                folder_name = os.path.basename(target.rstrip("/")) or "archive"
+                tmpdir = tempfile.mkdtemp()
+                try:
+                    if not RUN_AS_ROOT:
+                        os.chown(tmpdir, RUN_UID, RUN_GID)
+                    tmp_zip = os.path.join(tmpdir, "share.zip")
+                    subprocess.run(["zip", "-r", "-q", tmp_zip, ".", "-x", "*.db*", "*.log*"], cwd=target,
+                                   check=False, timeout=90, **run_as_kwargs())
+                    fsize = os.path.getsize(tmp_zip)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/zip")
+                    self.send_header("Content-Disposition", content_disposition(folder_name + ".zip"))
+                    self.send_header("Content-Length", str(fsize))
+                    self.end_headers()
+                    with open(tmp_zip, "rb") as f:
+                        shutil.copyfileobj(f, self.wfile)
+                finally:
+                    shutil.rmtree(tmpdir, ignore_errors=True)
+                return
+            fname = os.path.basename(target)
+            fsize = os.path.getsize(target)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition", content_disposition(fname))
+            self.send_header("Content-Length", str(fsize))
+            self.end_headers()
+            with open(target, "rb") as f:
+                shutil.copyfileobj(f, self.wfile)
+        except Exception:
+            try:
+                self.share_gone()
+            except Exception:
+                pass
+
+    def handle_share_post(self, route):
+        # Password form submitted from the public /s/<token> page (no CSRF header: it is a plain HTML form).
+        token = route.split("/s/")[1].split("/")[0]
+        ip = self.headers.get("X-Real-IP", self.client_address[0])
+        info = load_shares().get(token)
+        if not info:
+            self.share_gone()
+            return
+        key = "share|" + token + "|" + ip
+        if login_locked(key):
+            self.share_page(token, info, "Too many wrong attempts. Try again in a few minutes.", 429)
+            return
+        try:
+            length = max(0, min(int(self.headers.get("Content-Length", "0")), 4096))
+            form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "ignore"))
+        except Exception:
+            form = {}
+        if not check_share_pw(info, form.get("password", [""])[0]):
+            login_failed(key)
+            append_audit("share-link", "SHARE_PW_FAIL", info["path"], 403, ip)
+            time.sleep(0.4)
+            self.share_page(token, info, "Wrong password.", 403)
+            return
+        login_ok(key)
+        self.serve_share(token, info)
 
     def read_json_body(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -559,65 +1144,32 @@ class WProHandler(BaseHTTPRequestHandler):
                 "smb_port": int(os.environ.get("SMB_PORT", "4450")),
                 "sftp_port": int(os.environ.get("SFTP_PORT", "2222")),
                 "ftp_port": int(os.environ.get("FTP_PORT", "2121")),
-                "ext_port": int(os.environ.get("EXTERNAL_PORT", "8099"))
+                "ext_port": int(os.environ.get("EXTERNAL_PORT", "8099")),
+                "terminal": TERMINAL_ENABLED,
+                "run_as_root": RUN_AS_ROOT
             })
             return
             
         if route.startswith("/s/") or route == "/__wpro_api/share_dl":
             token = route.split("/s/")[1].split("/")[0] if route.startswith("/s/") else (qs.get("token", [""])[0])
-            shares = load_shares()
-            info = shares.get(token)
+            info = load_shares().get(token)
             if not info or info.get("exp", 0) < time.time():
                 self.send_response(404)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(b"Share link expired or invalid.")
                 return
-            try:
-                target = os.path.realpath(safe_resolve(info["path"]))
-                if os.path.isdir(target):
-                    dsz = dir_size_bytes(target)
-                    if dsz is None or dsz > SHARE_ZIP_MAX:
-                        self.send_response(413)
-                        self.send_header("Content-Type", "text/plain; charset=utf-8")
-                        self.end_headers()
-                        self.wfile.write(b"Folder is too large to download as a zip. Share individual files instead.")
-                        return
-                    folder_name = os.path.basename(target.rstrip("/")) or "archive"
-                    tmp_fd, tmp_zip = tempfile.mkstemp(suffix=".zip")
-                    os.close(tmp_fd)
-                    try:
-                        subprocess.run(["zip", "-r", "-q", tmp_zip, ".", "-x", "*.db*", "*.log*"], cwd=target, check=False, timeout=90)
-                        fsize = os.path.getsize(tmp_zip)
-                        append_audit("share-link", "SHARE_DL", info["path"], 200, self.headers.get("X-Real-IP", self.client_address[0]))
-                        self.send_response(200)
-                        self.send_header("Content-Type", "application/zip")
-                        self.send_header("Content-Disposition", f'attachment; filename="{folder_name}.zip"')
-                        self.send_header("Content-Length", str(fsize))
-                        self.end_headers()
-                        with open(tmp_zip, "rb") as f:
-                            shutil.copyfileobj(f, self.wfile)
-                    finally:
-                        if os.path.exists(tmp_zip):
-                            os.remove(tmp_zip)
-                    return
-                elif os.path.isfile(target):
-                    fname = os.path.basename(target)
-                    fsize = os.path.getsize(target)
-                    append_audit("share-link", "SHARE_DL", info["path"], 200, self.headers.get("X-Real-IP", self.client_address[0]))
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/octet-stream")
-                    self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
-                    self.send_header("Content-Length", str(fsize))
-                    self.end_headers()
-                    with open(target, "rb") as f:
-                        shutil.copyfileobj(f, self.wfile)
-                    return
-                else:
-                    raise FileNotFoundError()
-            except Exception:
-                self.send_response(404)
-                self.end_headers()
+            if info.get("pw_hash"):
+                self.share_page(token, info)
+                return
+            self.serve_share(token, info)
+            return
+
+        if route == "/__wpro_api/sessions":
+            if not self.get_auth_user():
+                self.send_json({"error": "Unauthorized"}, 401)
+                return
+            self.send_json({"sessions": list_sessions(self.sid)})
             return
 
         if route == "/__wpro_api/disk":
@@ -681,7 +1233,8 @@ class WProHandler(BaseHTTPRequestHandler):
 
         if route == "/__wpro_api/shares":
             shares = load_shares()
-            items = [{"token": k, **v} for k, v in shares.items()]
+            items = [{"token": k, **{kk: vv for kk, vv in v.items() if kk not in ("pw_hash", "pw_salt")},
+                      "has_password": bool(v.get("pw_hash"))} for k, v in shares.items()]
             items.sort(key=lambda x: x.get("created", 0), reverse=True)
             self.send_json({"shares": items})
             return
@@ -718,6 +1271,14 @@ class WProHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         route = parsed.path
+        if route.startswith("/s/"):
+            self.handle_share_post(route)
+            return
+        # CSRF guard: browsers cannot attach this custom header on cross-origin requests without a
+        # CORS preflight (which this server never approves), so forged cross-site POSTs are rejected.
+        if self.headers.get("X-WPro-CSRF") != "1":
+            self.send_json({"ok": False, "error": "Missing CSRF header"}, 403)
+            return
         body = self.read_json_body()
 
         if route == "/__wpro_api/login":
@@ -733,7 +1294,7 @@ class WProHandler(BaseHTTPRequestHandler):
             if verify_credentials(uname, upass):
                 login_ok(lock_key)
                 ttl = 2592000 if remember else 86400
-                tok = create_session_token(uname, ttl)
+                tok = create_session(uname, ttl, ip, self.headers.get("User-Agent", ""))
                 # Mark the cookie Secure when the browser is on HTTPS (native SSL or TLS-terminating proxy / tunnel).
                 is_https = (self.headers.get("X-Forwarded-Proto", "").lower() == "https"
                             or "https" in self.headers.get("CF-Visitor", "").lower()
@@ -750,8 +1311,60 @@ class WProHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/__wpro_api/logout":
+            try:
+                c = SimpleCookie()
+                c.load(self.headers.get("Cookie", ""))
+                if "wpro_sess" in c:
+                    revoke_session(c["wpro_sess"].value.rsplit(".", 1)[0])
+            except Exception:
+                pass
             cookie_val = "wpro_sess=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
             self.send_json({"ok": True}, 200, {"Set-Cookie": cookie_val})
+            return
+
+        if route == "/__wpro_api/session_ack":
+            # "It's me": dismiss the new-device alert for one session (or all) so it is not shown again.
+            user = self.get_auth_user()
+            if not user:
+                self.send_json({"ok": False, "error": "Unauthorized"}, 401)
+                return
+            with SESS_LOCK:
+                n = 0
+                for k, v in SESSIONS.items():
+                    if (body.get("all") or k == str(body.get("sid", ""))) and v.get("new") and not v.get("ack"):
+                        v["ack"] = True
+                        n += 1
+                if n:
+                    _sess_save()
+            self.send_json({"ok": True, "acked": n})
+            return
+
+        if route == "/__wpro_api/session_revoke":
+            user = self.get_auth_user()
+            if not user:
+                self.send_json({"ok": False, "error": "Unauthorized"}, 401)
+                return
+            ip = self.client_ip()
+            if body.get("rotate"):
+                n = rotate_secret()
+                append_audit(user, "SESSION_ROTATE", "signing key rotated, " + str(n) + " session(s) ended", 200, ip)
+                self.send_json({"ok": True, "revoked": n, "self": True}, 200,
+                               {"Set-Cookie": "wpro_sess=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"})
+                return
+            if body.get("all_others"):
+                n = revoke_other_sessions(self.sid)
+                append_audit(user, "SESSION_REVOKE", "all other devices (" + str(n) + ")", 200, ip)
+                self.send_json({"ok": True, "revoked": n})
+                return
+            sid = str(body.get("sid", ""))
+            if revoke_session(sid):
+                append_audit(user, "SESSION_REVOKE", "device " + sid[:6], 200, ip)
+                extra = None
+                if sid == self.sid:
+                    extra = {"Set-Cookie": "wpro_sess=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"}
+                self.send_json({"ok": True, "revoked": 1, "self": sid == self.sid}, 200, extra)
+            else:
+                self.send_json({"ok": False, "error": "Session not found"}, 404)
             return
 
         if route == "/__wpro_api/snapshot":
@@ -768,12 +1381,12 @@ class WProHandler(BaseHTTPRequestHandler):
                     zip_name = f"quick_automations_{stamp}.zip"
                     zip_path = os.path.join(backup_dir, zip_name)
                     cmd = ["zip", "-r", "-q", zip_path, "automations.yaml", "scripts.yaml", "scenes.yaml", "configuration.yaml", "automations", "packages"]
-                    subprocess.run(cmd, cwd=cfg_dir, check=False, timeout=60)
+                    subprocess.run(cmd, cwd=cfg_dir, check=False, timeout=60, **run_as_kwargs())
                 else:
                     zip_name = f"quick_snapshot_{stamp}.zip"
                     zip_path = os.path.join(backup_dir, zip_name)
                     cmd = ["zip", "-r", "-q", zip_path, ".", "-x", "backup/*", "*.db*", "*.log*"]
-                    subprocess.run(cmd, cwd=cfg_dir, check=False, timeout=120)
+                    subprocess.run(cmd, cwd=cfg_dir, check=False, timeout=120, **run_as_kwargs())
 
                 size_kb = round(os.path.getsize(zip_path) / 1024, 1) if os.path.exists(zip_path) else 0
                 append_audit("admin", "SNAPSHOT", f"/backup/{zip_name}", 200)
@@ -794,7 +1407,18 @@ class WProHandler(BaseHTTPRequestHandler):
                 return
 
             rel_path = body.get("path", "")
-            ttl = int(body.get("ttl", 3600))
+            try:
+                ttl = max(60, min(int(body.get("ttl", 3600)), 365 * 86400))
+            except (TypeError, ValueError):
+                ttl = 3600
+            try:
+                max_uses = max(0, min(int(body.get("max_uses", 0) or 0), 1000000))
+            except (TypeError, ValueError):
+                max_uses = 0
+            password = str(body.get("password", "") or "")
+            if len(password) > 128:
+                self.send_json({"ok": False, "error": "Password is too long (max 128 characters)"}, 400)
+                return
             try:
                 full = safe_resolve(rel_path)
                 if not os.path.exists(full):
@@ -805,16 +1429,24 @@ class WProHandler(BaseHTTPRequestHandler):
                 display_name = (base_name + ".zip") if is_dir else base_name
                 token = secrets.token_urlsafe(10)
                 now = int(time.time())
-                shares[token] = {
+                entry = {
                     "path": rel_path,
                     "name": display_name,
                     "is_dir": is_dir,
                     "created": now,
-                    "exp": now + ttl
+                    "exp": now + ttl,
+                    "max_uses": max_uses,
+                    "uses": 0
                 }
-                save_shares(shares)
+                if password:
+                    entry["pw_salt"], entry["pw_hash"] = hash_share_pw(password)
+                with SHARE_LOCK:
+                    shares = load_shares()
+                    shares[token] = entry
+                    save_shares(shares)
                 append_audit("admin", "SHARE_CREATE", rel_path, 200)
-                self.send_json({"ok": True, "token": token, "exp": now + ttl, "name": display_name, "is_dir": is_dir})
+                self.send_json({"ok": True, "token": token, "exp": now + ttl, "name": display_name, "is_dir": is_dir,
+                                "max_uses": max_uses, "has_password": bool(password)})
             except Exception as e:
                 self.send_json({"ok": False, "error": str(e)}, 500)
             return
@@ -829,6 +1461,9 @@ class WProHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/__wpro_api/exec":
+            if not TERMINAL_ENABLED:
+                self.send_json({"output": "Web Terminal is disabled (ENABLE_TERMINAL=false).\n", "code": 403}, 403)
+                return
             cmd_str = body.get("cmd", "").strip()
             cwd_rel = body.get("cwd", "/")
             if not cmd_str:
@@ -841,7 +1476,7 @@ class WProHandler(BaseHTTPRequestHandler):
                 proc = subprocess.run(
                     cmd_str, shell=True, cwd=cwd_full,
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    timeout=25, text=True
+                    timeout=25, text=True, env=child_env(), **run_as_kwargs()
                 )
                 append_audit("admin", "TERM_CMD", cmd_str[:80], proc.returncode)
                 self.send_json({"output": proc.stdout, "code": proc.returncode})
@@ -863,12 +1498,42 @@ chmod +x /usr/local/bin/wpro_api.py
 python3 /usr/local/bin/wpro_api.py "${API_PORT}" &
 log_info "Started OmniDrive Pro API & Hybrid Auth Engine on 127.0.0.1:${API_PORT}"
 
+# 10b. Real client IP behind a reverse proxy / Cloudflare Tunnel / Tailscale serve.
+#      Only requests coming from TRUSTED_PROXIES may set the client IP via REAL_IP_HEADER, so
+#      LAN clients cannot spoof their address. Used for audit log, rate limiting and login lockout.
+#      TRUSTED_PROXIES=none disables the feature.
+REAL_IP_CONF=""
+TRUSTED_PROXIES="${TRUSTED_PROXIES:-127.0.0.0/8,172.16.0.0/12}"
+REAL_IP_HEADER="${REAL_IP_HEADER:-X-Forwarded-For}"
+if [ -n "$TRUSTED_PROXIES" ] && [ "${TRUSTED_PROXIES,,}" != "none" ] && [[ "$REAL_IP_HEADER" =~ ^[A-Za-z0-9-]+$ ]]; then
+    # Make sure this nginx build supports the realip module before using it.
+    printf 'pid /tmp/ri_test.pid;\nerror_log /dev/stderr;\nevents {}\nhttp { access_log off; set_real_ip_from 127.0.0.1; real_ip_header X-Forwarded-For; real_ip_recursive on; }\n' > /tmp/ri_test.conf
+    if nginx -t -c /tmp/ri_test.conf >/dev/null 2>&1; then
+        IFS=',' read -ra _TP <<< "$TRUSTED_PROXIES"
+        for _cidr in "${_TP[@]}"; do
+            _cidr="${_cidr// /}"
+            if [[ "$_cidr" =~ ^[0-9a-fA-F:./]+$ ]]; then
+                REAL_IP_CONF+="        set_real_ip_from ${_cidr};"$'\n'
+            elif [ -n "$_cidr" ]; then
+                log_warn "Ignoring invalid TRUSTED_PROXIES entry: ${_cidr}"
+            fi
+        done
+        if [ -n "$REAL_IP_CONF" ]; then
+            REAL_IP_CONF+="        real_ip_header ${REAL_IP_HEADER};"$'\n'"        real_ip_recursive on;"$'\n'
+            log_info "Real client IP enabled (trusted proxies: ${TRUSTED_PROXIES}, header: ${REAL_IP_HEADER})."
+        fi
+    else
+        log_warn "nginx realip module not available; client IP detection disabled."
+    fi
+    rm -f /tmp/ri_test.conf
+fi
+
 # 11. Sinh file cấu hình Nginx chính
 cat <<EOF > "$NGINX_CONF"
 load_module /usr/lib/nginx/modules/ngx_http_dav_ext_module.so;
 load_module /usr/lib/nginx/modules/ngx_http_fancyindex_module.so;
 
-user root;
+user ${RUN_USER} ${RUN_GROUP};
 worker_processes auto;
 pid /run/nginx/nginx.pid;
 error_log /dev/stderr ${LOG_LEVEL};
@@ -921,12 +1586,13 @@ http {
 
     dav_ext_lock_zone zone=davlock:10m;
     limit_req_zone \$binary_remote_addr zone=dav_auth_limit:10m rate=20r/s;
+    limit_req_zone \$binary_remote_addr zone=share_limit:10m rate=5r/s;
 
     server {
         ${LISTEN_DIRECTIVE}
         ${SSL_DIRECTIVES}
         server_name _;
-
+${REAL_IP_CONF}
         add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
 
         # Self-hosted front-end libraries: cache + gzip (the server-wide no-store header would
@@ -963,6 +1629,7 @@ http {
             proxy_pass http://127.0.0.1:${API_PORT}/__wpro_api/auth_check;
             proxy_pass_request_body off;
             proxy_set_header Content-Length "";
+            proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header Cookie \$http_cookie;
             proxy_set_header Authorization \$http_authorization;
         }
@@ -976,6 +1643,8 @@ http {
         }
 
         location ^~ /s/ {
+            limit_req zone=share_limit burst=15 nodelay;
+            limit_req_status 429;
             proxy_pass http://127.0.0.1:${API_PORT};
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
@@ -1001,6 +1670,7 @@ http {
             index __omnidrive_no_index__;
             ${INDEX_CONFIG}
 
+${ROOT_LOCK_RULES}
             dav_methods PUT DELETE MKCOL COPY MOVE;
             dav_ext_methods PROPFIND OPTIONS LOCK UNLOCK;
             dav_ext_lock zone=davlock;
