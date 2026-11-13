@@ -1658,7 +1658,7 @@
       var extPort = info.ext_port || 8090;
       var user = info.default_user || 'admin';
 
-      var webdavUrl = ingressPrefix ? (location.protocol + '//' + lanHost + ':' + extPort + '/') : (location.origin + '/');
+      var webdavUrl = info.public_url ? (String(info.public_url).replace(/\/+$/, '') + '/') : ingressPrefix ? (location.protocol + '//' + lanHost + ':' + extPort + '/') : (location.origin + '/');
       var smbPortStr = (smbPort && smbPort !== 445) ? (':' + smbPort) : '';
       var smbUrl = 'smb://' + lanHost + smbPortStr + '/OmniDrive';
       var winUnc = '\\\\' + lanHost + (smbPort !== 445 ? ('@' + smbPort) : '') + '\\OmniDrive';
