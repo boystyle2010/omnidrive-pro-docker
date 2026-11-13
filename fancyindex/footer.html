@@ -1945,25 +1945,79 @@
   }
 
   function openShareItemOptionsModal(name, tok, extU, ingU) {
+    var isHA = !!ingressPrefix;
+    var secondBtnHtml = '';
+    
+    // Tự động tạo nút thứ 2 dựa trên môi trường
+    if (isHA) {
+      // Môi trường Home Assistant: Hiện nút Copy Ingress
+      secondBtnHtml = '<button id="optCopyIng" class="snap-card" type="button">' +
+        '<div class="snap-ic">' + IC_SHARE + '</div>' +
+        '<div class="snap-txt"><b>Copy Home Assistant Ingress Link</b><span>Direct download link for logged-in HA sessions</span></div>' +
+      '</button>';
+    } else {
+      // Môi trường Docker: Hiện nút Chia sẻ qua ứng dụng (Web Share API)
+      secondBtnHtml = '<button id="optShareNative" class="snap-card" type="button">' +
+        '<div class="snap-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg></div>' +
+        '<div class="snap-txt"><b>Share via App...</b><span>Send to Zalo, Telegram, iMessage, AirDrop, Email...</span></div>' +
+      '</button>';
+    }
+
+    // Tên nút Public linh hoạt
+    var publicTitle = isHA ? 'Copy Public / Cloudflare Link' : 'Copy Public Share Link';
+
     openSuiteModal(IC_SHARE + '<span>Share Link Options</span>',
       '<div class="ios-group-card">' +
         '<div class="ios-row"><div class="ios-row-main"><div class="ios-row-title">' + esc(name) + '</div><div class="ios-row-sub">' + esc(extU) + '</div></div></div>' +
       '</div>' +
       '<div class="snap-stack">' +
-        '<button id="optCopyExt" class="snap-card primary" type="button"><div class="snap-ic">' + IC_SHARE + '</div><div class="snap-txt"><b>Copy Public / Cloudflare Link</b><span>Share with external users (no WebDAV password needed)</span></div></button>' +
-        '<button id="optCopyIng" class="snap-card" type="button"><div class="snap-ic">' + IC_SHARE + '</div><div class="snap-txt"><b>Copy Home Assistant Ingress Link</b><span>Direct download link for logged-in HA sessions</span></div></button>' +
+        '<button id="optCopyExt" class="snap-card primary" type="button"><div class="snap-ic">' + IC_SHARE + '</div><div class="snap-txt"><b>' + publicTitle + '</b><span>Share with external users (no WebDAV password needed)</span></div></button>' +
+        secondBtnHtml +
         '<button id="optRevoke" class="snap-card" style="border-color:rgba(255,69,58,.35)" type="button"><div class="snap-ic" style="background:rgba(255,69,58,.15);border-color:rgba(255,69,58,.35);color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></div><div class="snap-txt"><b style="color:var(--red)">Revoke Share Link Immediately</b><span>Disable this download token right now</span></div></button>' +
       '</div>' +
       '<button id="optBackAudit" class="act-btn" style="width:100%" type="button">← Back to Audit &amp; Share Links</button>'
     );
+    
     document.getElementById('optCopyExt').addEventListener('click', function () {
       if (navigator.clipboard) navigator.clipboard.writeText(extU);
       showToast('Copied Public Share URL!');
     });
-    document.getElementById('optCopyIng').addEventListener('click', function () {
-      if (navigator.clipboard) navigator.clipboard.writeText(ingU);
-      showToast('Copied Ingress Share URL!');
-    });
+
+    // Gắn sự kiện cho nút thứ 2 tuỳ theo môi trường
+    if (isHA) {
+      var ingBtn = document.getElementById('optCopyIng');
+      if (ingBtn) {
+        ingBtn.addEventListener('click', function () {
+          if (navigator.clipboard) navigator.clipboard.writeText(ingU);
+          showToast('Copied Ingress Share URL!');
+        });
+      }
+    } else {
+      var natBtn = document.getElementById('optShareNative');
+      if (natBtn) {
+        natBtn.addEventListener('click', function () {
+          // Sử dụng Web Share API của trình duyệt/thiết bị
+          if (navigator.share) {
+            navigator.share({
+              title: 'OmniDrive Share: ' + name,
+              text: 'Download file from OmniDrive Pro:',
+              url: extU
+            }).catch(function(err) {
+              // Người dùng bấm Cancel trên bảng Share của iOS/Android thì không báo lỗi
+              if (err.name !== 'AbortError') {
+                if (navigator.clipboard) navigator.clipboard.writeText(extU);
+                showToast('Link copied to clipboard!');
+              }
+            });
+          } else {
+            // Fallback cho các trình duyệt cũ không hỗ trợ Web Share API (như Chrome trên PC)
+            if (navigator.clipboard) navigator.clipboard.writeText(extU);
+            showToast('Browser does not support native share. Link copied to clipboard!');
+          }
+        });
+      }
+    }
+
     document.getElementById('optRevoke').addEventListener('click', function () {
       showIosDialog({
         type: 'danger',
@@ -1978,9 +2032,9 @@
         ]
       });
     });
+    
     document.getElementById('optBackAudit').addEventListener('click', openAuditAndSharesModal);
   }
-
   document.getElementById('btnSysAudit').addEventListener('click', openAuditAndSharesModal);
 
   // 8. Tạo File, Tạo Folder, Upload, Kéo-Thả & Dán Clipboard
