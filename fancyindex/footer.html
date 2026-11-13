@@ -658,6 +658,9 @@
   // 2. Đường dẫn Ingress, WebDAV & Nút Sign Out
   var ingressMatch = location.pathname.match(/^(\/api\/hassio_ingress\/[^\/]+)/);
   var ingressPrefix = ingressMatch ? ingressMatch[1] : '';
+  // Nền tảng server: add-on Home Assistant trả về platform "ha" qua /__wpro_api/protocols, Docker thì không.
+  // Mặc định dựa vào Ingress (để dùng được ngay trước khi API trả lời), sau đó API quyết định.
+  var isHAEnv = !!ingressPrefix;
   var p = location.pathname.replace(/^\/api\/hassio_ingress\/[^\/]+/, '') || '/';
   if (!/\/$/.test(p)) p += '/';
   var segs = p.split('/').filter(Boolean).map(function (s) { try { return decodeURIComponent(s); } catch (e) { return s; } });
@@ -1549,7 +1552,7 @@
 
   // 7C. Quick Snapshot / Backup to Zip
   document.getElementById('btnSysSnap').addEventListener('click', function () {
-    var isHA = !!ingressPrefix; // Tự động nhận biết môi trường
+    var isHA = isHAEnv; // Home Assistant hay Docker (kể cả khi mở bằng tên miền Cloudflare, không qua Ingress)
     var htmlContent = '<p style="margin:0 0 12px;color:var(--muted);font-size:13.5px;line-height:1.45">Create an instant <code>.zip</code> backup directly inside your <code>/backup</code> folder.</p><div class="snap-stack">';
 
     if (isHA) {
@@ -2338,6 +2341,7 @@
   refreshClipBar();
   // Hide the Terminal button when the server runs with ENABLE_TERMINAL=false.
   fetch(apiUrl('protocols'), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (info) {
+    if (info && info.platform) isHAEnv = (info.platform === 'ha');
     if (info && info.terminal === false) {
       var tb = document.getElementById('btnSysTerm');
       if (tb) tb.remove();
