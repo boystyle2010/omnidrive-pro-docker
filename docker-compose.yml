@@ -60,6 +60,12 @@ services:
       # - TRUSTED_PROXIES=192.168.1.10,172.16.0.0/12
       # - REAL_IP_HEADER=X-Forwarded-For
 
+      # Connect Hub only: if you publish a different HOST port for a protocol (e.g. "4450:445" because
+      # port 445 is already used on your machine), tell the UI so it shows the right address.
+      # - SMB_PORT=4450
+      # - SFTP_PORT=2222
+      # - FTP_PORT=2121
+
       # Largest folder (in MB) that can be downloaded as a zip via a share link.
       # - SHARE_ZIP_MAX_MB=2048
     ports:
