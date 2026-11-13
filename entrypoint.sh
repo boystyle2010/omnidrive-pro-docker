@@ -1216,10 +1216,10 @@ button:active { transform:scale(.98); }
                 "default_user": first_user,
                 "shares": shares,
                 "lan_ip": os.environ.get("FTP_PASV_ADDRESS", ""),
-                "smb_port": int(os.environ.get("SMB_PORT", "4450")),
+                "smb_port": int(os.environ.get("SMB_PORT", "445")),
                 "sftp_port": int(os.environ.get("SFTP_PORT", "2222")),
                 "ftp_port": int(os.environ.get("FTP_PORT", "2121")),
-                "ext_port": int(os.environ.get("EXTERNAL_PORT", "8099")),
+                "ext_port": int(os.environ.get("EXTERNAL_PORT", "8090")),
                 "terminal": TERMINAL_ENABLED,
                 "run_as_root": RUN_AS_ROOT
             })
