@@ -1751,6 +1751,42 @@
   setTimeout(checkNewDevices, 2500);
   setInterval(checkNewDevices, 60000);
 
+  // Home Assistant only: the API answers needs_restart when the add-on configuration still lists an old password.
+  function askRestartAddon() {
+    showIosDialog({
+      type: 'warn',
+      title: 'Restart the add-on?',
+      message: 'Your new password is <b>already active</b> on every protocol. Home Assistant still shows the old password in the add-on configuration; restarting the add-on cleans that up.',
+      buttons: [
+        { label: 'Restart now', role: 'primary', onClick: restartAddonNow },
+        { label: 'Later', role: 'cancel' }
+      ]
+    });
+  }
+  function restartAddonNow() {
+    fetch(apiUrl('restart_addon'), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res || !res.ok) { showToast((res && res.error) || 'Restart failed'); return; }
+        showToast('Restarting the add-on...');
+        var sawDown = false, tries = 0;
+        (function poll() {
+          tries++;
+          setTimeout(function () {
+            fetch(apiUrl('protocols'), { credentials: 'same-origin', cache: 'no-store' })
+              .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+              .then(function () {
+                if (sawDown || tries > 20) location.reload(); else poll();
+              })
+              .catch(function () {
+                sawDown = true;
+                if (tries < 90) poll(); else showToast('The add-on is taking long to restart. Reload this page in a moment.');
+              });
+          }, 1500);
+        })();
+      }).catch(function () { showToast('Network Error'); });
+  }
+
   function openChangePasswordModal() {
     var lbl = 'display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em';
     var inp = 'display:block;width:100%;height:42px;margin:5px 0 12px;border-radius:11px;border:1px solid var(--glass-border);background:rgba(0,0,0,.35);color:var(--text);padding:0 12px;font-size:16px;box-sizing:border-box';
@@ -1779,6 +1815,7 @@
               (res.env_override ? '<br><b>Warning:</b> <code>OMNI_PASS</code> is still set in your compose file and will overwrite this password at the next restart. Remove it.' : '') +
               (res.warnings && res.warnings.length ? '<br><b>Warning:</b> ' + esc(res.warnings.join('; ')) : '');
           } else { showToast('Password Changed'); openAuditAndSharesModal(); }
+          if (res.needs_restart) askRestartAddon();
         }).catch(function () { fail('Network Error'); });
     });
   }
