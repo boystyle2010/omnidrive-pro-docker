@@ -1528,6 +1528,17 @@
         legend += '<div class="legend-item"><div class="legend-left"><span class="legend-dot" style="background:' + col + '"></span><b>/' + esc(f.name) + '</b></div><span>' + fmtBytes(f.bytes) + '</span></div>';
       });
 
+      // "Other": space used on the disk that is not inside the listed shares (OS, apps, containers, unlisted folders).
+      // Computed from the disk totals, so no extra scan is needed. Skipped when a folder size is unknown or the shares overlap.
+      var known = 0, unknownSize = false;
+      folders.forEach(function (f) { if (typeof f.bytes === 'number') known += f.bytes; else unknownSize = true; });
+      var otherBytes = (d.used || 0) - known;
+      if (!unknownSize && otherBytes > 0) {
+        var oFrac = Math.max(0, Math.min(1, otherBytes / denom)), oDash = oFrac * C;
+        circles += '<circle r="' + R + '" cx="90" cy="90" fill="transparent" stroke="#8e8e93" stroke-width="22" stroke-dasharray="' + oDash.toFixed(2) + ' ' + C.toFixed(2) + '" stroke-dashoffset="' + (-offset).toFixed(2) + '" transform="rotate(-90 90 90)"/>';
+        legend += '<div class="legend-item"><div class="legend-left"><span class="legend-dot" style="background:#8e8e93"></span><b>Other</b></div><span>' + fmtBytes(otherBytes) + '</span></div>';
+      }
+
       var usedPct = Math.round((d.used / denom) * 100);
       suiteBody.innerHTML =
         '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:rgba(38,44,58,.52);padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.09);margin-bottom:16px;gap:8px;text-align:center">' +
