@@ -46,6 +46,10 @@ Open **OmniDrive Pro** from your Home Assistant sidebar (or via your external We
 - **Download** saves the selection to your device: one file is downloaded as is, several items (or any folder) as a single `.zip`. The selection must come from one folder, and the total size is limited by `share_zip_max_mb`.
 - **Copy**, **Move** and **Delete** work on all selected items at once.
 
+### E. Duplicate Names & Hidden Files
+- **No silent overwrite.** Uploading, drag & drop, pasting (copy/move) and creating a file or folder first checks the current folder. If a name already exists you choose **Keep Both** (saves as `name (1)`), **Replace** (overwrites; a replaced folder is deleted with its contents) or **Skip**, or **Cancel** the whole action. Your choice applies to every conflicting item of that action.
+- **Show / Hide hidden files.** The eye button next to the grid/list button toggles items whose name starts with a dot (`.env`, `.git`, `.storage`). The choice is remembered in your browser; the counter shows how many items are hidden. The `show_dotfiles` option must be `true` for the server to list them; when it is `false` they are blocked completely.
+
 ---
 
 ## 🛠️ 2. System Operations, Sharing & Security Suite
@@ -83,7 +87,7 @@ The second action bar in the Web UI provides five dedicated system administratio
 | `keyfile` | `privkey.pem` | SSL private key filename in `/ssl`. |
 | `max_upload_size` | `"0"` | Maximum allowed upload size (`"0"` = unlimited, ideal for multi-GB backups). |
 | `fancy_ui` | `true` | Enables the iOS Glassmorphism Dark Web UI, Cloud Code IDE, and System Suite. |
-| `show_dotfiles` | `true` | Displays hidden system files and folders starting with a dot (e.g., `.storage`, `.git`). |
+| `show_dotfiles` | `true` | Lets the server list and serve files and folders starting with a dot (e.g., `.storage`, `.git`). The Web UI hides them until you tap the eye button; when `false` they are blocked entirely. |
 | `log_level` | `info` | Server log verbosity (`debug`, `info`, `notice`, `warn`, `error`). |
 | `root_access` | `false` | When `true`, file operations (Web UI, zip, terminal) run as **root**. When `false`, runs as unprivileged user. |
 | `enable_terminal` | `true` | Toggles the built-in Web Terminal inside the UI. |

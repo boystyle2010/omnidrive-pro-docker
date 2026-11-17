@@ -528,8 +528,12 @@ fi
 
 # 8. Cấu hình hiển thị File Browser (FancyIndex vs AutoIndex)
 DOTFILES_RULE=""
+FANCY_DOT=""
 if ! is_true "$SHOW_DOTFILES"; then
     DOTFILES_RULE="location ~ /\. { deny all; }"
+else
+    # List dotfiles (.env, .git ...) - the Web UI hides them by default and offers a Show/Hide toggle
+    FANCY_DOT="fancyindex_show_dotfiles on;"
 fi
 
 if is_true "$FANCY_UI"; then
@@ -540,6 +544,7 @@ if is_true "$FANCY_UI"; then
         fancyindex_header \"/.fancyindex/header.html\";
         fancyindex_footer \"/.fancyindex/footer.html\";
         fancyindex_ignore \"fancyindex\";
+        ${FANCY_DOT}
     "
 else
     INDEX_CONFIG="
