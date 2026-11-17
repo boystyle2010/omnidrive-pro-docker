@@ -995,6 +995,47 @@ def change_user_password(username, new_pw):
             warnings.append("SMB password could not be updated")
     return True, warnings
 
+ZIP_JOBS = {}
+ZIP_LOCK = threading.Lock()
+
+def zip_plan(raw_paths):
+    """Validate a multi-download selection. Returns (parent_dir, [names], total_bytes); raises ValueError(message)."""
+    if not isinstance(raw_paths, list) or not raw_paths: raise ValueError("Nothing selected")
+    if len(raw_paths) > 500: raise ValueError("Too many items selected (max 500)")
+    parent, names, total = None, [], 0
+    for rp in raw_paths:
+        try:
+            full = safe_resolve(str(rp).rstrip("/"))
+        except Exception:
+            raise ValueError("Invalid path")
+        name = os.path.basename(full)
+        par = os.path.dirname(full)
+        if not name or full.rstrip("/") == ROOT_DIR.rstrip("/"): raise ValueError("Invalid path")
+        if parent is None: parent = par
+        elif par != parent: raise ValueError("Select items from a single folder")
+        real = os.path.realpath(full)
+        if not os.path.exists(real) or not user_can_read(real): raise ValueError("Cannot read: " + name)
+        if os.path.isdir(real):
+            sz = dir_size_bytes(real)
+            if sz is None: raise ValueError("A selected folder is too large to measure")
+            total += sz
+        else:
+            total += os.path.getsize(real)
+        if name in names: continue
+        names.append(name)
+    if total > SHARE_ZIP_MAX:
+        raise ValueError("Selection is too large (limit %d MB)" % (SHARE_ZIP_MAX // (1024 * 1024)))
+    return parent, names, total
+
+def zip_job_create(user, raw_paths):
+    plan = zip_plan(raw_paths)
+    now = time.time()
+    with ZIP_LOCK:
+        for k in [k for k, v in ZIP_JOBS.items() if v["exp"] < now]: ZIP_JOBS.pop(k, None)
+        tok = secrets.token_urlsafe(18)
+        ZIP_JOBS[tok] = {"user": user, "paths": raw_paths, "exp": now + 120}
+    return tok, plan
+
 class WProHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
@@ -1096,6 +1137,39 @@ button:active { transform:scale(.98); }
         self.send_header("Content-Length", str(len(page)))
         self.end_headers()
         self.wfile.write(page)
+
+    def serve_zip_selection(self, user, job):
+        try:
+            parent, names, total = zip_plan(job["paths"])
+        except ValueError as e:
+            self.share_gone(400, str(e).encode("utf-8")); return
+        rel_parent = parent[len(ROOT_DIR):] or "/"
+        append_audit(user, "DOWNLOAD_SELECTION", rel_parent + " (" + str(len(names)) + " items)", 200, self.client_ip())
+        single = os.path.realpath(os.path.join(parent, names[0])) if len(names) == 1 else None
+        if single and os.path.isfile(single):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition", content_disposition(names[0]))
+            self.send_header("Content-Length", str(os.path.getsize(single)))
+            self.end_headers()
+            with open(single, "rb") as f: shutil.copyfileobj(f, self.wfile)
+            return
+        tmpdir = tempfile.mkdtemp()
+        try:
+            if not RUN_AS_ROOT: os.chown(tmpdir, RUN_UID, RUN_GID)
+            tmp_zip = os.path.join(tmpdir, "selection.zip")
+            subprocess.run(["zip", "-r", "-q", "-1", tmp_zip] + ["./" + n for n in names], cwd=parent, check=False, timeout=900, **run_as_kwargs())
+            if not os.path.exists(tmp_zip):
+                self.share_gone(500, b"Could not create the zip file."); return
+            zname = ((os.path.basename(parent) or "files") + "_" + str(len(names)) + "_items.zip")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", content_disposition(zname))
+            self.send_header("Content-Length", str(os.path.getsize(tmp_zip)))
+            self.end_headers()
+            with open(tmp_zip, "rb") as f: shutil.copyfileobj(f, self.wfile)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def share_gone(self, code=404, text=b"Share link expired or invalid."):
         self.send_response(code)
@@ -1239,6 +1313,14 @@ button:active { transform:scale(.98); }
                 return
             self.serve_share(token, info)
             return
+
+        if route == "/__wpro_api/zip_selected":
+            user = self.get_auth_user()
+            if not user: self.send_json({"error": "Unauthorized"}, 401); return
+            with ZIP_LOCK: job = ZIP_JOBS.pop(qs.get("token", [""])[0], None)
+            if not job or job["exp"] < time.time() or job["user"] != user:
+                self.share_gone(404, b"Download link expired. Select the items again."); return
+            self.serve_zip_selection(user, job); return
 
         if route == "/__wpro_api/sessions":
             if not self.get_auth_user():
@@ -1431,6 +1513,15 @@ button:active { transform:scale(.98); }
             env_override = bool(os.environ.get("OMNI_PASS") or os.environ.get("OMNI_PASS_FILE")) and os.environ.get("OMNI_USER", "") == user
             self.send_json({"ok": True, "revoked": n, "env_override": env_override, "warnings": warnings})
             return
+
+        if route == "/__wpro_api/zip_prepare":
+            user = self.get_auth_user()
+            if not user: self.send_json({"ok": False, "error": "Unauthorized"}, 401); return
+            try:
+                tok, plan = zip_job_create(user, body.get("paths"))
+            except ValueError as e:
+                self.send_json({"ok": False, "error": str(e)}, 400); return
+            self.send_json({"ok": True, "token": tok, "items": len(plan[1]), "bytes": plan[2]}); return
 
         if route == "/__wpro_api/session_ack":
             # "It's me": dismiss the new-device alert for one session (or all) so it is not shown again.
@@ -1786,6 +1877,7 @@ ${REAL_IP_CONF}
             proxy_pass http://127.0.0.1:${API_PORT};
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
+            proxy_read_timeout 600s;
             access_log off;
         }
 
