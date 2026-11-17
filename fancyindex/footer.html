@@ -261,6 +261,9 @@
   .empty{display:none;text-align:center;padding:42px 20px;color:var(--muted);font-size:15px}
   .empty.show{display:block}
   .stat{text-align:center;color:var(--muted);font-size:13px;margin:18px 0 6px}
+  body:not(.show-hidden) tr.dotrow{display:none !important}
+  tr.sysrow{display:none !important}
+  #dotBtn.on{color:#0a84ff}
   .toast{
     position:fixed;bottom:28px;left:0;right:0;margin:0 auto;width:max-content;max-width:90vw;
     transform:translateY(20px);
@@ -718,6 +721,40 @@
     showToast(label + ' failed (' + (st || 'network') + ')' + why);
   }
 
+  // ---- Duplicate-name protection -------------------------------------------------------------
+  // Nothing is ever overwritten silently: when a name already exists in this folder the user picks
+  // Replace / Keep Both / Skip / Cancel. The decision applies to every conflicting item of that action.
+  function nameTaken(n) { return Object.prototype.hasOwnProperty.call(rowMapByName, n); }
+  function existingIsDir(n) { var r = rowMapByName[n]; return !!(r && r._item && r._item.isDir); }
+  function takenNames() { var t = {}; Object.keys(rowMapByName).forEach(function (k) { t[k] = 1; }); return t; }
+  function uniqueName(name, taken) {
+    if (!taken[name]) return name;
+    var i = name.lastIndexOf('.'), base = i > 0 ? name.slice(0, i) : name, ext = i > 0 ? name.slice(i) : '', k = 1, c;
+    do { c = base + ' (' + k + ')' + ext; k++; } while (taken[c]);
+    return c;
+  }
+  // entries: [{name, isDir}] -> done('none' | 'replace' | 'both' | 'skip' | null /* cancelled */)
+  function resolveConflicts(entries, done) {
+    var hits = entries.filter(function (e) { return nameTaken(e.name); });
+    if (!hits.length) { done('none'); return; }
+    var list = hits.slice(0, 3).map(function (e) { return '<b>' + esc(e.name) + '</b>'; }).join(', ') + (hits.length > 3 ? ' and ' + (hits.length - 3) + ' more' : '');
+    var anyDir = hits.some(function (e) { return e.isDir || existingIsDir(e.name); });
+    showIosDialog({
+      type: 'warn',
+      title: hits.length === 1 ? 'Name already exists' : hits.length + ' names already exist',
+      message: list + (hits.length === 1 ? ' already exists' : ' already exist') + ' in this folder.<br><br>' +
+        '<b>Replace</b> overwrites the existing ' + (anyDir ? 'file/folder (a folder is deleted with everything in it)' : (hits.length === 1 ? 'file' : 'files')) + '.<br>' +
+        '<b>Keep Both</b> saves the new one as <code>name (1)</code>.<br>' +
+        '<b>Skip</b> leaves the existing one untouched.',
+      buttons: [
+        { label: 'Keep Both', role: 'primary', onClick: function () { done('both'); } },
+        { label: 'Replace', role: 'danger', onClick: function () { done('replace'); } },
+        { label: 'Skip', role: '', onClick: function () { done('skip'); } },
+        { label: 'Cancel', role: 'cancel', onClick: function () { done(null); } }
+      ]
+    });
+  }
+
   // 3. Tiêu đề, Back & Breadcrumbs
   document.getElementById('title').textContent = segs.length ? segs[segs.length - 1] : 'OmniDrive Pro';
   var nav = document.getElementById('nav'), back = document.getElementById('back');
@@ -740,6 +777,8 @@
 
   // 4. Danh sách hàng, Multi-Select & Git Status Integration
   var rows = [].slice.call(document.querySelectorAll('#list tbody tr'));
+  var showHidden = lsGet('wpro_hidden', '0') === '1';
+  function rowVisible(r) { return !!r._item && (showHidden || !r.classList.contains('dotrow')); }
   var nd = 0, nf = 0, selectMode = false, selectedSet = [], rowMapByName = {};
   var btnSelectMode = document.getElementById('btnSelectMode'), batchBar = document.getElementById('batchBar'), batchCountEl = document.getElementById('batchCount');
 
@@ -748,7 +787,7 @@
     batchBar.classList.toggle('show', selectMode);
     [].forEach.call(batchBar.querySelectorAll('.batch-actions .clip-btn'), function (b) { b.disabled = !selectedSet.length; });
     var allBtn = document.getElementById('btnBatchAll');
-    if (allBtn) { var total = rows.filter(function (r) { return r._item; }).length; allBtn.textContent = (total && selectedSet.length === total) ? 'None' : 'All'; }
+    if (allBtn) { var total = rows.filter(rowVisible).length; allBtn.textContent = (total && selectedSet.length === total) ? 'None' : 'All'; }
   }
   btnSelectMode.addEventListener('click', function () {
     selectMode = !selectMode;
@@ -765,6 +804,8 @@
     var href = a.getAttribute('href') || '', name = (a.getAttribute('title') || a.textContent || '').trim();
     if (tr.classList.contains('parent') || href === '../') { tr.classList.add('parent'); return; }
     var isDir = /\/$/.test(href), label = name.replace(/\/$/, '');
+    if (label === '.fancyindex') { tr.classList.add('sysrow'); return; }   // add-on internal assets, never shown
+    if (label.charAt(0) === '.') tr.classList.add('dotrow');
     if (isDir) { tr.classList.add('dir'); nd++; } else { nf++; }
     a.innerHTML = CHECK_ICON + (isDir ? FOLDER : fileIcon(label)) + '<span class="nm"><span class="nm-txt">' + esc(label) + '</span></span>';
     tr.setAttribute('data-n', label.toLowerCase());
@@ -793,9 +834,19 @@
     });
   });
 
-  var summaryText = plural(nd, 'folder') + ' • ' + plural(nf, 'file');
-  document.getElementById('stat').textContent = summaryText;
-  document.getElementById('subStat').textContent = (segs.length ? '/' + segs.join('/') : 'Root Storage') + ' • ' + summaryText;
+  function updateSummary() {
+    var vd = 0, vf = 0, hid = 0;
+    rows.forEach(function (r) {
+      if (!r._item) return;
+      if (!rowVisible(r)) { hid++; return; }
+      if (r._item.isDir) vd++; else vf++;
+    });
+    var t = plural(vd, 'folder') + ' • ' + plural(vf, 'file') + (hid ? ' • ' + hid + ' hidden' : '');
+    document.getElementById('stat').textContent = t;
+    document.getElementById('subStat').textContent = (segs.length ? '/' + segs.join('/') : 'Root Storage') + ' • ' + t;
+  }
+  document.body.classList.toggle('show-hidden', showHidden);
+  updateSummary();
 
   fetch(apiUrl('git_status?path=' + encodeURIComponent(p))).then(function (r) { return r.json(); }).then(function (data) {
     if (!data || !data.is_git) return;
@@ -2120,10 +2171,28 @@
         { label: 'Create & Edit', role: 'primary', onClick: function (name) {
           if (!name || !name.trim()) return;
           var clean = name.trim().replace(/^\/+/, ''), extMatch = /\.([a-z0-9]+)$/i.exec(clean), ext = extMatch ? extMatch[1].toLowerCase() : 'yaml';
-          fetch(buildWebdavUrl(encodeURIComponent(clean)), { method: 'PUT', credentials: 'same-origin', body: '' }).then(function (r) {
-            if (r.ok || r.status === 201 || r.status === 204) openCodeEditor(clean, encodeURIComponent(clean), ext, true);
-            else showToast('Error: HTTP ' + r.status);
-          });
+          function createIt(finalName) {
+            var fx = /\.([a-z0-9]+)$/i.exec(finalName), fext = fx ? fx[1].toLowerCase() : 'yaml';
+            fetch(buildWebdavUrl(encodeURIComponent(finalName)), { method: 'PUT', credentials: 'same-origin', body: '' }).then(function (r) {
+              if (r.ok || r.status === 201 || r.status === 204) openCodeEditor(finalName, encodeURIComponent(finalName), fext, true);
+              else showToast('Error: HTTP ' + r.status);
+            });
+          }
+          if (nameTaken(clean)) {
+            var isD = existingIsDir(clean);
+            showIosDialog({
+              type: 'warn', title: 'Name already exists',
+              message: (isD ? 'A folder named <b>' : 'A file named <b>') + esc(clean) + '</b> already exists here. Nothing has been changed.',
+              buttons: [
+                isD ? { label: 'Keep Both', role: 'primary', onClick: function () { createIt(uniqueName(clean, takenNames())); } }
+                    : { label: 'Open Existing', role: 'primary', onClick: function () { openCodeEditor(clean, encodeURIComponent(clean), ext, false); } },
+                isD ? { label: 'Cancel', role: 'cancel' } : { label: 'Keep Both', role: '', onClick: function () { createIt(uniqueName(clean, takenNames())); } },
+                isD ? null : { label: 'Cancel', role: 'cancel' }
+              ].filter(Boolean)
+            });
+            return;
+          }
+          createIt(clean);
         }},
         { label: 'Cancel', role: 'cancel' }
       ]
@@ -2142,10 +2211,25 @@
         { label: 'Create Folder', role: 'primary', onClick: function (name) {
           if (!name || !name.trim()) return;
           var clean = name.trim().replace(/^\/+|\/+$/g, '');
-          fetch(buildWebdavUrl(encodeURIComponent(clean) + '/'), { method: 'MKCOL', credentials: 'same-origin' }).then(function (r) {
-            if (r.ok || r.status === 201) { showToast('Folder created'); setTimeout(function () { location.reload(); }, 400); }
-            else showToast('Error: HTTP ' + r.status);
-          });
+          function mk(finalName) {
+            fetch(buildWebdavUrl(encodeURIComponent(finalName) + '/'), { method: 'MKCOL', credentials: 'same-origin' }).then(function (r) {
+              if (r.ok || r.status === 201) { showToast('Folder created'); setTimeout(function () { location.reload(); }, 400); }
+              else if (r.status === 405) showToast('"' + finalName + '" already exists');
+              else showToast('Error: HTTP ' + r.status);
+            });
+          }
+          if (nameTaken(clean)) {
+            showIosDialog({
+              type: 'warn', title: 'Name already exists',
+              message: (existingIsDir(clean) ? 'A folder named <b>' : 'A file named <b>') + esc(clean) + '</b> already exists here.',
+              buttons: [
+                { label: 'Keep Both', role: 'primary', onClick: function () { mk(uniqueName(clean, takenNames())); } },
+                { label: 'Cancel', role: 'cancel' }
+              ]
+            });
+            return;
+          }
+          mk(clean);
         }},
         { label: 'Cancel', role: 'cancel' }
       ]
@@ -2156,7 +2240,21 @@
   function uploadFileList(files) {
     if (!files || !files.length) return;
     if (!requireFolder()) return;
-    uploadProg.classList.add('show'); var idx = 0, failed = [];
+    resolveConflicts(files.map(function (f) { return { name: f.name, isDir: false }; }), function (mode) {
+      if (mode === null) return;
+      var taken = takenNames(), plan = [];
+      files.forEach(function (f) {
+        if (!nameTaken(f.name)) { plan.push({ file: f, name: f.name }); return; }
+        if (mode === 'skip') return;
+        if (mode === 'replace' && !existingIsDir(f.name)) { plan.push({ file: f, name: f.name }); return; }
+        var n = uniqueName(f.name, taken); taken[n] = 1; plan.push({ file: f, name: n });
+      });
+      if (!plan.length) { showToast('Nothing uploaded (all skipped)'); return; }
+      runUpload(plan);
+    });
+  }
+  function runUpload(plan) {
+    uploadProg.classList.add('show'); var idx = 0, failed = [], files = plan;
     function next() {
       if (idx >= files.length) {
         uploadProg.classList.remove('show');
@@ -2169,8 +2267,8 @@
         }
         return;
       }
-      var f = files[idx++], xhr = new XMLHttpRequest();
-      xhr.open('PUT', buildWebdavUrl(encodeURIComponent(f.name)), true);
+      var job = files[idx++], f = { name: job.name, file: job.file }, xhr = new XMLHttpRequest();
+      xhr.open('PUT', buildWebdavUrl(encodeURIComponent(job.name)), true);
       xhr.upload.onprogress = function (e) {
         if (e.lengthComputable) { var pct = Math.round((e.loaded / e.total) * 100); uploadText.textContent = 'Uploading ' + f.name + ' (' + pct + '%)'; progBar.style.width = pct + '%'; }
       };
@@ -2179,7 +2277,7 @@
         next();
       };
       xhr.onerror = function () { failed.push(f.name + ' (network)'); next(); };
-      xhr.send(f);
+      xhr.send(job.file);
     }
     next();
   }
@@ -2422,7 +2520,7 @@
   document.getElementById('actCut').addEventListener('click', function () { if (selectedItem) { setClip('MOVE', [selectedItem]); closeActionSheet(); showToast('Cut'); } });
   document.getElementById('btnBatchCancel').addEventListener('click', function () { if (selectMode) btnSelectMode.click(); });
   document.getElementById('btnBatchAll').addEventListener('click', function () {
-    var items = rows.filter(function (r) { return r._item; });
+    var items = rows.filter(rowVisible);
     var everything = items.length && selectedSet.length === items.length;
     selectedSet = [];
     items.forEach(function (r) {
@@ -2523,24 +2621,41 @@
     var raw = ssGet('wpro_clip'); if (!raw) return;
     if (!requireFolder()) return;
     var clip; try { clip = JSON.parse(raw); } catch (e) { ssDel('wpro_clip'); refreshClipBar(); return; }
-    Promise.all(clip.items.map(function (it) {
-      var destInternal = p + encodeURIComponent(it.name) + (it.isDir ? '/' : '');
-      if (destInternal === it.internalPath) {
-        if (clip.mode === 'MOVE') return Promise.resolve({ ok: true });   // moving into the same folder: nothing to do
-        destInternal = p + encodeURIComponent('copy_' + it.name) + (it.isDir ? '/' : '');
-      }
-      // Overwrite: F -> never silently replace an existing file/folder (server answers 412 instead).
-      return fetch(ingressPrefix + it.internalPath, { method: clip.mode, credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(destInternal), 'Overwrite': 'F' } })
-        .catch(function () { return { ok: false, status: 0 }; });
-    })).then(function (rs) {
-      var bad = rs.filter(function (r) { return !r.ok; });
-      if (bad.length) {
-        reportDavError(clip.mode === 'MOVE' ? 'Move' : 'Copy', bad[0]);
-        setTimeout(function () { location.reload(); }, 2600);
-        return;
-      }
-      if (clip.mode === 'MOVE') ssDel('wpro_clip');
-      location.reload();
+    var entries = clip.items.filter(function (it) { return (p + encodeURIComponent(it.name) + (it.isDir ? '/' : '')) !== it.internalPath; })
+      .map(function (it) { return { name: it.name, isDir: it.isDir }; });
+    resolveConflicts(entries, function (mode) {
+      if (mode === null) return;
+      var taken = takenNames(), jobs = [], skipped = 0;
+      clip.items.forEach(function (it) {
+        var destInternal = p + encodeURIComponent(it.name) + (it.isDir ? '/' : ''), name = it.name, ow = 'F';
+        if (destInternal === it.internalPath) {
+          if (clip.mode === 'MOVE') return;               // moving into the same folder: nothing to do
+          name = uniqueName('copy_' + it.name, taken);   // copying into the same folder: auto-name, never overwrite
+        } else if (nameTaken(it.name)) {
+          if (mode === 'skip') { skipped++; return; }
+          if (mode === 'replace' && existingIsDir(it.name) === it.isDir) ow = 'T';
+          else name = uniqueName(it.name, taken);
+        } else if (taken[it.name]) {
+          name = uniqueName(it.name, taken);
+        }
+        taken[name] = 1;
+        jobs.push({ src: it.internalPath, dest: p + encodeURIComponent(name) + (it.isDir ? '/' : ''), ow: ow });
+      });
+      if (!jobs.length) { if (skipped) showToast('Nothing pasted (all skipped)'); return; }
+      // Overwrite is 'T' only when the user explicitly chose Replace; otherwise 'F' (server answers 412 instead of replacing).
+      Promise.all(jobs.map(function (j) {
+        return fetch(ingressPrefix + j.src, { method: clip.mode, credentials: 'same-origin', headers: { 'Destination': buildDestinationHeader(j.dest), 'Overwrite': j.ow } })
+          .catch(function () { return { ok: false, status: 0 }; });
+      })).then(function (rs) {
+        var bad = rs.filter(function (r) { return !r.ok; });
+        if (bad.length) {
+          reportDavError(clip.mode === 'MOVE' ? 'Move' : 'Copy', bad[0]);
+          setTimeout(function () { location.reload(); }, 2600);
+          return;
+        }
+        if (clip.mode === 'MOVE' && !skipped) ssDel('wpro_clip');
+        location.reload();
+      });
     });
   });
 
@@ -2548,8 +2663,8 @@
   var qInput = document.getElementById('q'), clearBtn = document.getElementById('clearBtn'), emptyEl = document.getElementById('empty');
   function filterRows() {
     var v = qInput.value.trim().toLowerCase(); clearBtn.classList.toggle('show', v.length > 0); var c = 0;
-    rows.forEach(function (tr) { var n = tr.getAttribute('data-n'); if (n === null) return; var m = !v || n.indexOf(v) !== -1; tr.style.display = m ? '' : 'none'; if (m) c++; });
-    emptyEl.classList.toggle('show', c === 0 && (nd + nf) > 0);
+    rows.forEach(function (tr) { var n = tr.getAttribute('data-n'); if (n === null) return; if (!showHidden && tr.classList.contains('dotrow')) return; var m = !v || n.indexOf(v) !== -1; tr.style.display = m ? '' : 'none'; if (m) c++; });
+    emptyEl.classList.toggle('show', c === 0 && rows.some(rowVisible));
   }
   qInput.addEventListener('input', filterRows);
   clearBtn.addEventListener('click', function () { qInput.value = ''; filterRows(); qInput.focus(); });
@@ -2563,6 +2678,24 @@
   var listSvg = '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>';
   function applyView(mode) { var g = mode === 'grid'; document.body.classList.toggle('grid-mode', g); viewIcon.innerHTML = g ? listSvg : gridSvg; }
   var savedView = lsGet('wpro_view', 'list'); applyView(savedView);
+  // Show / Hide hidden files (names starting with a dot). Remembered per browser.
+  var eyeOn = '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>';
+  var eyeOff = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-11-7-11-7a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 5c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
+  var dotBtn = viewBtn.cloneNode(false); dotBtn.id = 'dotBtn'; dotBtn.type = 'button';
+  var dotIcon = viewIcon.cloneNode(false); dotIcon.id = 'dotIcon'; dotBtn.appendChild(dotIcon);
+  viewBtn.parentNode.insertBefore(dotBtn, viewBtn);
+  function applyHidden(announce) {
+    document.body.classList.toggle('show-hidden', showHidden);
+    dotBtn.classList.toggle('on', showHidden);
+    dotIcon.innerHTML = showHidden ? eyeOn : eyeOff;
+    dotBtn.title = showHidden ? 'Hide hidden files' : 'Show hidden files';
+    dotBtn.setAttribute('aria-label', dotBtn.title);
+    if (!showHidden && selectMode) { selectedSet = selectedSet.filter(function (it) { return it.name.charAt(0) !== '.'; }); rows.forEach(function (r) { if (r.classList.contains('dotrow')) r.classList.remove('selected'); }); }
+    updateSummary(); updateBatchUI(); filterRows();
+    if (announce) { var n = rows.filter(function (r) { return r._item && r.classList.contains('dotrow'); }).length; showToast(showHidden ? (n ? 'Showing ' + n + ' hidden item' + (n === 1 ? '' : 's') : 'No hidden files in this folder') : 'Hidden files are hidden'); }
+  }
+  dotBtn.addEventListener('click', function () { showHidden = !showHidden; lsSet('wpro_hidden', showHidden ? '1' : '0'); applyHidden(true); });
+  applyHidden(false);
   viewBtn.addEventListener('click', function () { savedView = document.body.classList.contains('grid-mode') ? 'list' : 'grid'; lsSet('wpro_view', savedView); applyView(savedView); });
 })();
 </script>
