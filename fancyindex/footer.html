@@ -27,6 +27,12 @@
     display:none!important;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 18px 42px rgba(0,0,0,.75);z-index:80;
   }
   .clip-bar.show,.batch-bar.show{display:flex!important;animation:sheetUp .2s cubic-bezier(.2,.9,.3,1)}
+  .batch-bar{flex-direction:column;align-items:stretch;gap:9px}
+  .batch-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .batch-actions{display:flex;gap:6px}
+  .batch-actions .clip-btn{flex:1;padding:0 6px}
+  .clip-btn:disabled{opacity:.4;cursor:default}
+  body.select-mode{padding-bottom:150px}
   .clip-info{min-width:0;flex:1;font-size:13.5px}
   .clip-info b{color:#5ac8fa;display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .clip-info span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
@@ -311,9 +317,16 @@
   </div>
 
   <div id="batchBar" class="batch-bar" style="display:none">
-    <div class="clip-info"><b>BATCH SELECTION</b><span id="batchCount">0 items selected</span></div>
-    <div class="clip-btns">
-      <button id="btnBatchCopy" class="clip-btn paste" type="button">Copy</button>
+    <div class="batch-top">
+      <div class="clip-info"><b>BATCH SELECTION</b><span id="batchCount">0 items selected</span></div>
+      <div class="clip-btns">
+        <button id="btnBatchAll" class="clip-btn cancel" type="button">All</button>
+        <button id="btnBatchCancel" class="clip-btn cancel" type="button">Cancel</button>
+      </div>
+    </div>
+    <div class="batch-actions">
+      <button id="btnBatchDl" class="clip-btn paste" type="button">Download</button>
+      <button id="btnBatchCopy" class="clip-btn cancel" type="button">Copy</button>
       <button id="btnBatchMove" class="clip-btn cancel" type="button">Move</button>
       <button id="btnBatchDel" class="clip-btn danger" type="button">Delete</button>
     </div>
@@ -731,8 +744,11 @@
   var btnSelectMode = document.getElementById('btnSelectMode'), batchBar = document.getElementById('batchBar'), batchCountEl = document.getElementById('batchCount');
 
   function updateBatchUI() {
-    batchCountEl.textContent = plural(selectedSet.length, 'item') + ' selected';
-    batchBar.classList.toggle('show', selectMode && selectedSet.length > 0);
+    batchCountEl.textContent = selectedSet.length ? plural(selectedSet.length, 'item') + ' selected' : 'Tap items to select';
+    batchBar.classList.toggle('show', selectMode);
+    [].forEach.call(batchBar.querySelectorAll('.batch-actions .clip-btn'), function (b) { b.disabled = !selectedSet.length; });
+    var allBtn = document.getElementById('btnBatchAll');
+    if (allBtn) { var total = rows.filter(function (r) { return r._item; }).length; allBtn.textContent = (total && selectedSet.length === total) ? 'None' : 'All'; }
   }
   btnSelectMode.addEventListener('click', function () {
     selectMode = !selectMode;
@@ -754,6 +770,9 @@
     tr.setAttribute('data-n', label.toLowerCase());
     rowMapByName[label] = tr;
     var itemObj = { name: label, href: href, isDir: isDir, internalPath: p + encodeURIComponent(label) + (isDir ? '/' : '') };
+    tr._item = itemObj;
+    var szCell = tr.querySelector('td.size');
+    itemObj.bytes = szCell ? parseSizeText(szCell.textContent) : null;
 
     var moreBtn = document.createElement('button');
     moreBtn.type = 'button'; moreBtn.className = 'more-btn';
@@ -2401,6 +2420,81 @@
 
   document.getElementById('actCopy').addEventListener('click', function () { if (selectedItem) { setClip('COPY', [selectedItem]); closeActionSheet(); showToast('Copied'); } });
   document.getElementById('actCut').addEventListener('click', function () { if (selectedItem) { setClip('MOVE', [selectedItem]); closeActionSheet(); showToast('Cut'); } });
+  document.getElementById('btnBatchCancel').addEventListener('click', function () { if (selectMode) btnSelectMode.click(); });
+  document.getElementById('btnBatchAll').addEventListener('click', function () {
+    var items = rows.filter(function (r) { return r._item; });
+    var everything = items.length && selectedSet.length === items.length;
+    selectedSet = [];
+    items.forEach(function (r) {
+      if (everything) r.classList.remove('selected'); else { selectedSet.push(r._item); r.classList.add('selected'); }
+    });
+    updateBatchUI();
+  });
+  // "37.1 KiB" -> bytes (null when unknown, e.g. folders show "-")
+  function parseSizeText(t) {
+    var m = /([0-9]+(?:[.,][0-9]+)?)\s*(B|KiB|MiB|GiB|TiB|KB|MB|GB|TB|K|M|G|T)?\b/i.exec(String(t || '').trim());
+    if (!m) return null;
+    var n = parseFloat(m[1].replace(',', '.')), u = (m[2] || 'B').toUpperCase().charAt(0);
+    var mult = { B: 1, K: 1024, M: 1048576, G: 1073741824, T: 1099511627776 }[u];
+    return mult ? Math.round(n * mult) : null;
+  }
+  // Few small files are simply downloaded one by one, without asking.
+  var SEPARATE_MAX_FILES = 5, SEPARATE_MAX_BYTES = 1048576;
+  function startZipDownload(items) {
+    var paths = items.map(function (it) { return it.internalPath; });
+    showToast('Preparing download...');
+    fetch(apiUrl('zip_prepare'), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths: paths }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (j) {
+        if (!j || !j.ok || !j.token) { showToast((j && j.error) || 'Download failed'); return; }
+        var fr = document.createElement('iframe');
+        fr.style.display = 'none';
+        fr.src = apiUrl('zip_selected?token=' + encodeURIComponent(j.token));
+        document.body.appendChild(fr);
+        setTimeout(function () { if (fr.parentNode) fr.parentNode.removeChild(fr); }, 600000);
+        showToast(j.items > 1 ? 'Downloading ' + j.items + ' items as a zip...' : 'Download started');
+      }).catch(function () { showToast('Network Error'); });
+  }
+  // Separate downloads: one file after another (browsers may ask once to allow multiple downloads).
+  function startSeparateDownloads(items) {
+    showToast('Downloading ' + plural(items.length, 'file') + '...');
+    items.forEach(function (it, i) {
+      setTimeout(function () {
+        var a = document.createElement('a');
+        a.href = ingressPrefix + it.internalPath;
+        a.download = it.name;
+        a.style.display = 'none';
+        document.body.appendChild(a); a.click();
+        setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 1000);
+      }, i * 800);
+    });
+  }
+  document.getElementById('btnBatchDl').addEventListener('click', function () {
+    if (!selectedSet.length) return;
+    var items = selectedSet.slice();
+    var onlyFiles = items.every(function (it) { return !it.isDir; });
+    if (items.length === 1 && onlyFiles) { startSeparateDownloads(items); return; }
+    var sizes = items.map(function (it) { return it.bytes; });
+    var known = sizes.every(function (b) { return typeof b === 'number'; });
+    var totalBytes = known ? sizes.reduce(function (a, b) { return a + b; }, 0) : 0;
+    if (items.length > 1 && onlyFiles && known && items.length <= SEPARATE_MAX_FILES && totalBytes < SEPARATE_MAX_BYTES) {
+      startSeparateDownloads(items); return;
+    }
+    if (items.length > 1 && onlyFiles) {
+      showIosDialog({
+        type: 'info',
+        title: 'Download ' + items.length + ' files',
+        message: 'Save them as <b>one zip file</b>, or download each file <b>separately</b>?',
+        buttons: [
+          { label: 'Download as Zip', role: 'primary', onClick: function () { startZipDownload(items); } },
+          { label: 'Download ' + items.length + ' Files Separately', onClick: function () { startSeparateDownloads(items); } },
+          { label: 'Cancel', role: 'cancel' }
+        ]
+      });
+      return;
+    }
+    startZipDownload(items);   // folders are always packed into a zip
+  });
   document.getElementById('btnBatchCopy').addEventListener('click', function () { if (selectedSet.length) { setClip('COPY', selectedSet.slice()); btnSelectMode.click(); } });
   document.getElementById('btnBatchMove').addEventListener('click', function () { if (selectedSet.length) { setClip('MOVE', selectedSet.slice()); btnSelectMode.click(); } });
   document.getElementById('btnBatchDel').addEventListener('click', function () {
