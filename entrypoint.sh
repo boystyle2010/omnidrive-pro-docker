@@ -936,6 +936,59 @@ def safe_resolve(rel_path):
         raise ValueError("Invalid path")
     return full
 
+def perm_target(rel):
+    import stat
+    full = safe_resolve(str(rel or "").rstrip("/"))
+    if full.rstrip("/") == ROOT_DIR.rstrip("/"): raise ValueError("Invalid path")
+    st = os.lstat(full)
+    if stat.S_ISLNK(st.st_mode):
+        raise ValueError("This is a link to a shared folder. Open it and change the items inside instead.")
+    return full, st
+
+def perm_info(rel):
+    import stat, pwd, grp
+    full, st = perm_target(rel)
+    try: owner = pwd.getpwuid(st.st_uid).pw_name
+    except KeyError: owner = str(st.st_uid)
+    try: group = grp.getgrgid(st.st_gid).gr_name
+    except KeyError: group = str(st.st_gid)
+    return {"ok": True, "name": os.path.basename(full), "is_dir": stat.S_ISDIR(st.st_mode),
+            "mode": "%04o" % stat.S_IMODE(st.st_mode), "symbolic": stat.filemode(st.st_mode)[1:],
+            "owner": owner, "group": group, "uid": st.st_uid, "gid": st.st_gid}
+
+def perm_apply(rel, mode_str, recursive, scope, owner, group):
+    import stat, pwd, grp
+    mode_str = str(mode_str or "").strip()
+    if not (3 <= len(mode_str) <= 4) or any(c not in "01234567" for c in mode_str):
+        raise ValueError("Mode must be 3 or 4 octal digits (e.g. 644 or 0755)")
+    mode = int(mode_str, 8)
+    uid = gid = -1
+    try:
+        if owner: uid = int(owner) if str(owner).isdigit() else pwd.getpwnam(str(owner)).pw_uid
+        if group: gid = int(group) if str(group).isdigit() else grp.getgrnam(str(group)).gr_gid
+    except KeyError:
+        raise ValueError("Unknown owner or group name")
+    full, st = perm_target(rel)
+    targets = [full]
+    recursive = bool(recursive) and stat.S_ISDIR(st.st_mode)
+    if recursive:
+        for dp, dns, fns in os.walk(full, followlinks=False):
+            for n in dns + fns: targets.append(os.path.join(dp, n))
+            if len(targets) > 200000: raise ValueError("Too many items (limit 200,000)")
+    changed = failed = 0
+    for t in targets:
+        try:
+            lst = os.lstat(t)
+            if stat.S_ISLNK(lst.st_mode): continue
+            isd = stat.S_ISDIR(lst.st_mode)
+            if recursive and ((scope == "files" and isd) or (scope == "dirs" and not isd)): continue
+            if uid != -1 or gid != -1: os.chown(t, uid, gid)   # chown first: it can clear setuid/setgid bits
+            os.chmod(t, mode)
+            changed += 1
+        except OSError:
+            failed += 1
+    return {"ok": True, "changed": changed, "failed": failed, "mode": "%04o" % mode}
+
 def dir_size_du(path):
     try:
         out = subprocess.check_output(["du", "-sk", path], stderr=subprocess.DEVNULL, timeout=8).decode()
@@ -1351,6 +1404,11 @@ button:active { transform:scale(.98); }
                 self.send_json({"error": str(e)}, 500)
             return
 
+        if route == "/__wpro_api/perm_info":
+            try: self.send_json(perm_info(qs.get("path", ["/"])[0]))
+            except (ValueError, OSError) as e: self.send_json({"ok": False, "error": str(e)}, 400)
+            return
+
         if route == "/__wpro_api/git_status":
             rel = qs.get("path", ["/"])[0]
             try:
@@ -1684,6 +1742,16 @@ button:active { transform:scale(.98); }
                 self.send_json({"ok": True})
             except Exception as e:
                 self.send_json({"ok": False, "error": str(e)}, 500)
+            return
+
+        if route == "/__wpro_api/perm_set":
+            p_rel = body.get("path", "")
+            try:
+                res = perm_apply(p_rel, body.get("mode"), body.get("recursive"), body.get("scope", "all"), str(body.get("owner", "") or "").strip(), str(body.get("group", "") or "").strip())
+                append_audit("admin", "CHMOD " + res["mode"] + (" -R" if body.get("recursive") else ""), p_rel, 200)
+                self.send_json(res)
+            except (ValueError, OSError) as e:
+                self.send_json({"ok": False, "error": str(e)}, 400)
             return
 
         if route == "/__wpro_api/exec":
