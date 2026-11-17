@@ -268,6 +268,37 @@
   .toast.top.show{transform:translateY(0)}
   .ed-btn.save.saved-ok{background:#30d158!important;border-color:#30d158!important;color:#fff!important}
   .controls{position:relative}
+  .ios-dlg-btn:disabled{opacity:.4}
+  .ios-dialog{max-height:calc(100dvh - 28px);overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .pm{text-align:left;color:#e5e5ea}
+  .pm-info{font-size:12.5px;color:var(--muted);line-height:1.5;margin-bottom:10px}
+  .pm-info b,.pm-info code{color:#fff}
+  .pm-grid{width:100%;border-collapse:collapse;margin:2px 0 10px}
+  .pm-grid th{font-size:12px;font-weight:700;color:#5ac8fa;padding:2px 0 6px;text-align:center}
+  .pm-grid td{padding:5px 0;text-align:center;font-size:14px}
+  .pm-grid td:first-child{text-align:left;font-weight:600;color:#e5e5ea;width:34%}
+  .pm-grid td small{color:var(--muted);font-weight:500;margin-left:4px;font-size:11px}
+  .pm input[type=checkbox]{width:22px;height:22px;accent-color:#0a84ff;vertical-align:middle}
+  .pm-special{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;margin:0 0 12px;padding:9px 10px;border-radius:12px;background:rgba(255,255,255,.05)}
+  .pm-special label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+  .pm-special input[type=checkbox]{width:18px;height:18px}
+  .pm-fields{display:grid;grid-template-columns:1fr 1.5fr;gap:8px;margin-bottom:10px}
+  .pm-fields label,.pm-own label{display:block;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .pm-fields input,.pm-own input,.pm select{width:100%;height:40px;margin-top:4px;padding:0 10px;border-radius:11px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.07);color:#fff;font:15px ui-monospace,SFMono-Regular,Menlo,monospace;outline:none}
+  .pm select{font-family:inherit;font-size:14px;margin-top:6px}
+  .pm-fields input:focus,.pm-own input:focus{border-color:#0a84ff}
+  .pm-fields input.bad{border-color:#ff453a;background:rgba(255,69,58,.14)}
+  .pm-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .pm-presets button{height:30px;padding:0 11px;border-radius:15px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e5e5ea;font-size:12.5px;font-weight:600;cursor:pointer}
+  .pm-presets button:active{background:rgba(10,132,255,.3)}
+  .pm-sum{font-size:12.5px;line-height:1.45;color:#cbd5e1;margin:0 0 8px;min-height:18px}
+  .pm-warn{font-size:12.5px;line-height:1.4;color:#ff9f0a;margin:0 0 8px}
+  .pm-rec{display:flex;align-items:center;gap:8px;font-size:13.5px;margin:6px 0 2px;cursor:pointer}
+  .pm details{margin-top:8px;font-size:13px}
+  .pm summary{cursor:pointer;color:#5ac8fa;font-weight:600}
+  .pm-own{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
+  .crumbs>*{flex:none}
+  .crumbs{padding-right:4px}
   .sort-pill{display:none!important}
   #sortBtn.on{color:#0a84ff}
   .sort-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:60;min-width:170px;padding:6px;border-radius:16px;
@@ -389,6 +420,10 @@
       <button id="actRename" class="sheet-btn" type="button">
         <span>Rename</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+      </button>
+      <button id="actPerm" class="sheet-btn" type="button">
+        <span>Permissions</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       </button>
       <button id="actCopyPath" class="sheet-btn" type="button">
         <span>Copy Full Path</span>
@@ -2451,6 +2486,136 @@
     var link = document.createElement('a'); link.href = buildWebdavUrl(selectedItem.href); link.download = selectedItem.name;
     document.body.appendChild(link); link.click(); link.remove();
   });
+  // ---- Permissions (chmod / chown) ------------------------------------------------------------
+  // mode bits: owner rwx = 0o700, group = 0o070, public = 0o007; special: setuid 04000, setgid 02000, sticky 01000.
+  function permModeToSym(m) {
+    var out = '', sp = [2048, 1024, 512];
+    for (var i = 0; i < 3; i++) {
+      var b = (m >> (6 - 3 * i)) & 7, x = b & 1, on = !!(m & sp[i]);
+      out += (b & 4 ? 'r' : '-') + (b & 2 ? 'w' : '-');
+      if (i < 2) out += on ? (x ? 's' : 'S') : (x ? 'x' : '-');
+      else out += on ? (x ? 't' : 'T') : (x ? 'x' : '-');
+    }
+    return out;
+  }
+  function permSymToMode(str) {
+    str = String(str || '').replace(/\s+/g, '');
+    if (str.length === 10 && '-dlbcps'.indexOf(str.charAt(0)) !== -1) str = str.slice(1);   // accept "-rw-r--r--" / "drwxr-xr-x" too
+    if (!/^[r-][w-][xsS-][r-][w-][xsS-][r-][w-][xtT-]$/.test(str)) return -1;
+    var m = 0, sp = [2048, 1024, 512];
+    for (var i = 0; i < 3; i++) {
+      var r = str.charAt(i * 3), w = str.charAt(i * 3 + 1), x = str.charAt(i * 3 + 2), b = 0;
+      if (r === 'r') b |= 4; if (w === 'w') b |= 2;
+      if (x === 'x' || x === 's' || x === 't') b |= 1;
+      if (x === 's' || x === 'S' || x === 't' || x === 'T') m |= sp[i];
+      m |= b << (6 - 3 * i);
+    }
+    return m;
+  }
+  function permOctToMode(str) { str = String(str || '').trim(); return /^[0-7]{3,4}$/.test(str) ? parseInt(str, 8) : -1; }
+  function permModeToOct(m) { var o = m.toString(8); while (o.length < 3) o = '0' + o; return (m & 3584) ? ('0000' + o).slice(-4) : o; }
+  function permWords(b, isDir) {
+    var a = []; if (b & 4) a.push(isDir ? 'list' : 'read'); if (b & 2) a.push(isDir ? 'create/delete' : 'write'); if (b & 1) a.push(isDir ? 'enter' : 'run');
+    return a.length ? a.join(', ') : 'nothing';
+  }
+
+  function openPermDialog(item) {
+    fetch(apiUrl('perm_info?path=' + encodeURIComponent(item.internalPath)), { credentials: 'same-origin' })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, error: 'HTTP ' + r.status }; }); })
+      .then(function (info) {
+        if (!info || !info.ok) { showToast((info && info.error) || 'Cannot read permissions'); return; }
+        buildPermDialog(item, info);
+      })
+      .catch(function () { showToast('Cannot read permissions (network)'); });
+  }
+
+  function buildPermDialog(item, info) {
+    var isDir = !!info.is_dir, cur = parseInt(info.mode, 8), start = cur;
+    var rowsDef = [['Read', 4, isDir ? 'list' : ''], ['Write', 2, isDir ? 'edit' : ''], ['Execute', 1, isDir ? 'enter' : '']];
+    var grid = '<table class="pm-grid"><tr><th></th><th>Owner</th><th>Group</th><th>Public</th></tr>';
+    rowsDef.forEach(function (rw) {
+      grid += '<tr><td>' + rw[0] + (rw[2] ? '<small>' + rw[2] + '</small>' : '') + '</td>';
+      for (var c = 0; c < 3; c++) grid += '<td><input type="checkbox" data-b="' + (rw[1] << (6 - 3 * c)) + '" aria-label="' + ['Owner', 'Group', 'Public'][c] + ' ' + rw[0] + '"></td>';
+      grid += '</tr>';
+    });
+    grid += '</table>';
+    var html = '<div class="pm">' +
+      '<div class="pm-info"><b>' + esc(info.name) + '</b> · ' + (isDir ? 'Folder' : 'File') + '<br>Owner <b>' + esc(info.owner) + '</b> · Group <b>' + esc(info.group) + '</b> · Now <code>' + esc(info.mode) + '</code> <code>' + esc(info.symbolic) + '</code></div>' +
+      grid +
+      '<div class="pm-special"><span style="color:var(--muted)">Special:</span>' +
+        '<label><input type="checkbox" data-b="2048">SetUID</label><label><input type="checkbox" data-b="1024">SetGID</label><label><input type="checkbox" data-b="512">Sticky</label></div>' +
+      '<div class="pm-fields"><label>Octal<input id="pmOct" inputmode="numeric" maxlength="4" autocomplete="off" spellcheck="false" placeholder="644"></label>' +
+        '<label>Symbolic<input id="pmSym" maxlength="10" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="rw-r--r--"></label></div>' +
+      '<div class="pm-presets">' + (isDir ? ['755', '750', '700', '775', '777'] : ['644', '640', '600', '664', '755', '666']).map(function (v) { return '<button type="button" data-p="' + v + '">' + v + '</button>'; }).join('') + '</div>' +
+      '<div id="pmSum" class="pm-sum"></div><div id="pmWarn" class="pm-warn" style="display:none"></div>' +
+      (isDir ? '<label class="pm-rec"><input id="pmRec" type="checkbox"> Apply to everything inside this folder</label>' +
+               '<select id="pmScope" style="display:none"><option value="all">Files and folders</option><option value="files">Files only</option><option value="dirs">Folders only</option></select>' : '') +
+      '<details><summary>Owner &amp; group</summary><div class="pm-own"><label>Owner<input id="pmOwner" autocomplete="off" spellcheck="false" value="' + esc(info.owner) + '"></label><label>Group<input id="pmGroup" autocomplete="off" spellcheck="false" value="' + esc(info.group) + '"></label></div></details>' +
+      '</div>';
+
+    showIosDialog({
+      type: 'info', title: 'Permissions', message: html,
+      buttons: [
+        { label: 'Apply', role: 'primary', onClick: function () {
+          var rec = isDir && document.getElementById('pmRec').checked;
+          var payload = { path: item.internalPath, mode: permModeToOct(cur), recursive: rec, scope: rec ? document.getElementById('pmScope').value : 'all' };
+          var ow = document.getElementById('pmOwner').value.trim(), gr = document.getElementById('pmGroup').value.trim();
+          if (ow && ow !== info.owner) payload.owner = ow;
+          if (gr && gr !== info.group) payload.group = gr;
+          fetch(apiUrl('perm_set'), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+            .then(function (r) { return r.json().catch(function () { return { ok: false, error: 'HTTP ' + r.status }; }); })
+            .then(function (res) {
+              if (!res || !res.ok) { showToast((res && res.error) || 'Failed to change permissions'); return; }
+              if (!res.changed) { showToast('Not changed (read-only or not permitted)'); return; }
+              showToast('✓ ' + res.mode + ' applied' + (res.changed > 1 ? ' to ' + res.changed + ' items' : '') + (res.failed ? ' (' + res.failed + ' failed)' : ''));
+              setTimeout(function () { location.reload(); }, 900);
+            })
+            .catch(function () { showToast('Failed (network)'); });
+        }},
+        { label: 'Cancel', role: 'cancel' }
+      ]
+    });
+
+    var box = iosDlgMsg, applyBtn = iosDlgBtns.querySelector('.primary');
+    var oct = box.querySelector('#pmOct'), sym = box.querySelector('#pmSym'), sumEl = box.querySelector('#pmSum'), warnEl = box.querySelector('#pmWarn');
+    var chks = [].slice.call(box.querySelectorAll('input[type=checkbox][data-b]'));
+    var rec = box.querySelector('#pmRec'), scope = box.querySelector('#pmScope');
+    function render(src) {
+      chks.forEach(function (c) { c.checked = !!(cur & parseInt(c.getAttribute('data-b'), 10)); });
+      if (src !== 'oct') { oct.value = permModeToOct(cur); oct.classList.remove('bad'); }
+      if (src !== 'sym') { sym.value = permModeToSym(cur); sym.classList.remove('bad'); }
+      var o = (cur >> 6) & 7, g = (cur >> 3) & 7, p = cur & 7;
+      sumEl.textContent = 'Owner: ' + permWords(o, isDir) + ' · Group: ' + permWords(g, isDir) + ' · Public: ' + permWords(p, isDir);
+      var w = [];
+      if (p & 2) w.push('Anyone on the network can modify this.');
+      if (cur & 2048) w.push('SetUID: runs with the owner\'s privileges.');
+      if (cur & 1024) w.push('SetGID: runs with the group\'s privileges' + (isDir ? ' and new files inherit the group.' : '.'));
+      if ((cur & 512) && isDir) w.push('Sticky: only the owner can delete files inside.');
+      if (isDir && !(o & 1)) w.push('Without Execute (owner) this folder cannot be opened.');
+      warnEl.style.display = w.length ? 'block' : 'none'; warnEl.innerHTML = w.map(esc).join('<br>');
+      if (applyBtn) applyBtn.disabled = false;
+    }
+    chks.forEach(function (c) { c.addEventListener('change', function () { var b = parseInt(c.getAttribute('data-b'), 10); cur = c.checked ? (cur | b) : (cur & ~b); render(); }); });
+    oct.addEventListener('input', function () {
+      var m = permOctToMode(oct.value);
+      if (m < 0) { oct.classList.add('bad'); if (applyBtn) applyBtn.disabled = true; return; }
+      cur = m; render('oct');
+    });
+    sym.addEventListener('input', function () {
+      var m = permSymToMode(sym.value);
+      if (m < 0) { sym.classList.add('bad'); if (applyBtn) applyBtn.disabled = true; return; }
+      cur = m; render('sym');
+    });
+    [].forEach.call(box.querySelectorAll('.pm-presets button'), function (b) {
+      b.addEventListener('click', function () { cur = (cur & 3584 & 0) | parseInt(b.getAttribute('data-p'), 8); render(); });
+    });
+    if (rec) rec.addEventListener('change', function () { scope.style.display = rec.checked ? 'block' : 'none'; });
+    render();
+  }
+  document.getElementById('actPerm').addEventListener('click', function () {
+    if (!selectedItem) return; var item = selectedItem; closeActionSheet(); openPermDialog(item);
+  });
+
   document.getElementById('actDup').addEventListener('click', function () {
     if (!selectedItem) return; var item = selectedItem; closeActionSheet();
     showIosDialog({
@@ -2737,6 +2902,17 @@
   sortBtn.addEventListener('click', function (e) { e.stopPropagation(); var open = !sortMenu.classList.contains('show'); sortMenu.classList.toggle('show', open); sortBtn.classList.toggle('on', open); });
   document.addEventListener('click', function (e) { if (!sortMenu.contains(e.target)) closeSortMenu(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSortMenu(); });
+
+  // Breadcrumbs: always scroll to the right end so the current (last) folder is fully visible.
+  // Done again after layout settles (buttons above were added late, fonts load, rotation).
+  function scrollCrumbs() { crumbsEl.scrollLeft = crumbsEl.scrollWidth; }
+  scrollCrumbs();
+  if (window.requestAnimationFrame) requestAnimationFrame(scrollCrumbs);
+  setTimeout(scrollCrumbs, 120); setTimeout(scrollCrumbs, 500);
+  window.addEventListener('load', scrollCrumbs);
+  window.addEventListener('resize', scrollCrumbs);
+  window.addEventListener('orientationchange', function () { setTimeout(scrollCrumbs, 250); });
+  try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(scrollCrumbs); } catch (e) {}
   viewBtn.addEventListener('click', function () { savedView = document.body.classList.contains('grid-mode') ? 'list' : 'grid'; lsSet('wpro_view', savedView); applyView(savedView); });
 })();
 </script>
