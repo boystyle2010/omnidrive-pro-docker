@@ -264,6 +264,21 @@
   body:not(.show-hidden) tr.dotrow{display:none !important}
   tr.sysrow{display:none !important}
   #dotBtn.on{color:#0a84ff}
+  .toast.top{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 58px);transform:translateY(-16px)}
+  .toast.top.show{transform:translateY(0)}
+  .ed-btn.save.saved-ok{background:#30d158!important;border-color:#30d158!important;color:#fff!important}
+  .controls{position:relative}
+  .sort-pill{display:none!important}
+  #sortBtn.on{color:#0a84ff}
+  .sort-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:60;min-width:170px;padding:6px;border-radius:16px;
+    background:var(--card-elevated,rgba(38,46,66,.96));border:1px solid var(--glass-border,rgba(255,255,255,.12));
+    -webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);box-shadow:0 18px 42px rgba(0,0,0,.6);display:none}
+  .sort-menu.show{display:block}
+  .sort-menu button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;height:40px;padding:0 12px;border:0;border-radius:11px;background:transparent;color:#e5e5ea;font-size:14.5px;font-weight:500;text-align:left;cursor:pointer}
+  .sort-menu button:active{background:rgba(255,255,255,.1)}
+  .sort-menu button.cur{color:#5ac8fa;font-weight:600}
+  .sort-menu button .tick{width:16px;height:16px;opacity:0}
+  .sort-menu button.cur .tick{opacity:1}
   .toast{
     position:fixed;bottom:28px;left:0;right:0;margin:0 auto;width:max-content;max-width:90vw;
     transform:translateY(20px);
@@ -559,8 +574,10 @@
   }
   function showToast(msg) {
     var t = document.getElementById('toast');
+    t.classList.toggle('top', !!editorModal.classList.contains('show'));
     t.textContent = msg; t.classList.add('show');
-    setTimeout(function () { t.classList.remove('show'); }, 2400);
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(function () { t.classList.remove('show'); }, 2400);
   }
 
   // Hệ thống Hộp thoại iOS Glassmorphism
@@ -1398,6 +1415,9 @@
         edLang.textContent = (currentExt || 'TEXT').toUpperCase() + (isMarkdownFile ? ' • MARKDOWN' : '');
         edStatus.textContent = 'Saved ' + new Date().toLocaleTimeString();
         showToast('✓ Saved ' + edTitle.textContent);
+        edSave.textContent = '✓ Saved'; edSave.classList.add('saved-ok');
+        clearTimeout(edSave._t);
+        edSave._t = setTimeout(function () { edSave.textContent = 'Save'; edSave.classList.remove('saved-ok'); }, 1800);
         if (isMarkdownFile && mdPreviewActive) toggleMarkdownPreview(true);
         if (onSuccessCallback) onSuccessCallback();
       } else {
@@ -2696,6 +2716,27 @@
   }
   dotBtn.addEventListener('click', function () { showHidden = !showHidden; lsSet('wpro_hidden', showHidden ? '1' : '0'); applyHidden(true); });
   applyHidden(false);
+
+  // Sort: the wide "Name A-Z" select is replaced by one icon; tapping it opens a small menu.
+  var sortBtn = viewBtn.cloneNode(false); sortBtn.id = 'sortBtn'; sortBtn.type = 'button'; sortBtn.title = 'Sort';
+  var sortIcon = viewIcon.cloneNode(false); sortIcon.id = 'sortIcon';
+  sortIcon.innerHTML = '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="15" y2="12"/><line x1="4" y1="18" x2="10" y2="18"/>';
+  sortBtn.appendChild(sortIcon);
+  dotBtn.parentNode.insertBefore(sortBtn, dotBtn);
+  var sortMenu = document.createElement('div'); sortMenu.className = 'sort-menu'; sortMenu.setAttribute('role', 'menu');
+  var tick = '<svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  [].forEach.call(s.options, function (o) {
+    var b = document.createElement('button'); b.type = 'button'; b.setAttribute('data-v', o.value);
+    b.innerHTML = '<span>' + esc(o.textContent) + '</span>' + tick;
+    if (o.selected) b.className = 'cur';
+    b.addEventListener('click', function () { closeSortMenu(); location.search = '?' + o.value; });
+    sortMenu.appendChild(b);
+  });
+  sortBtn.parentNode.appendChild(sortMenu);
+  function closeSortMenu() { sortMenu.classList.remove('show'); sortBtn.classList.remove('on'); }
+  sortBtn.addEventListener('click', function (e) { e.stopPropagation(); var open = !sortMenu.classList.contains('show'); sortMenu.classList.toggle('show', open); sortBtn.classList.toggle('on', open); });
+  document.addEventListener('click', function (e) { if (!sortMenu.contains(e.target)) closeSortMenu(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSortMenu(); });
   viewBtn.addEventListener('click', function () { savedView = document.body.classList.contains('grid-mode') ? 'list' : 'grid'; lsSet('wpro_view', savedView); applyView(savedView); });
 })();
 </script>
