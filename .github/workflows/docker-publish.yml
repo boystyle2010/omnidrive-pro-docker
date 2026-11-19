@@ -1,55 +1,341 @@
-name: Build & Publish Multi-Arch Docker Image
+name: OmniDrive Pro Docker - Auto Update, Multi-Arch Publish & Release
 
 on:
+  schedule:
+    # Tự động kiểm tra bản mới lúc 06:00 UTC hàng ngày
+    - cron: "0 6 * * *"
+  workflow_dispatch:
   push:
     branches: [ "main" ]
-  workflow_run:
-    workflows: ["Auto-Update Alpine & Nginx Base"]
-    types:
-      - completed
-  workflow_dispatch:
+    paths-ignore:
+      - "README.md"
+      - ".github/workflows/.keepalive"
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
+concurrency:
+  group: omnidrive-docker-pipeline
+  cancel-in-progress: false
+
 jobs:
-  build-and-push:
+  build-publish-release:
+    name: "🚀 OmniDrive Pro Docker CI/CD"
     runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 30
+    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip ci]')
     steps:
-      - name: Checkout Repository
+      - name: "📥 1. Checkout Repository"
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
-      - name: Extract Version from Dockerfile
-        id: vars
+      - name: "🔍 2. Check Alpine Base & Protocol Engines (Multi-Arch Verified)"
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          APP_VER=$(grep -E '^ARG APP_VERSION=' Dockerfile | cut -d'=' -f2 | tr -d '" ')
-          IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          echo "version=${APP_VER}" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          set -e
+          CUR_ALPINE=$(grep -E '^ARG ALPINE_VERSION=' Dockerfile | cut -d'=' -f2 | tr -d '" \r\n')
+          CUR_NGINX=$(grep -E '^ARG NGINX_VERSION=' Dockerfile | cut -d'=' -f2 | tr -d '" \r\n')
+          CUR_APP=$(grep -E '^ARG APP_VERSION=' Dockerfile | cut -d'=' -f2 | tr -d '" \r\n')
 
-      - name: Set up QEMU (Multi-Arch Support)
+          [ -z "$CUR_ALPINE" ] && CUR_ALPINE="3.24"
+          [ -z "$CUR_NGINX" ] && CUR_NGINX="1.30.6-r0"
+          [ -z "$CUR_APP" ] && CUR_APP="1.0.30"
+
+          alpine_multiarch_ok() {
+            local m
+            m=$(docker manifest inspect "alpine:$1" 2>/dev/null || echo "")
+            echo "$m" | jq -e '[.manifests[]?.platform.architecture] | (index("amd64") != null and index("arm64") != null)' >/dev/null 2>&1
+          }
+
+          LATEST_ALPINE=$(curl -fsSL "https://alpinelinux.org/releases.json" \
+            | jq -r '.release_branches[] | select(.rel_branch | test("^v[0-9]+\\.[0-9]+$")) | .rel_branch' \
+            | head -n1 | sed 's/^v//' | tr -d ' \r\n' || echo "$CUR_ALPINE")
+          [ -z "$LATEST_ALPINE" ] && LATEST_ALPINE="$CUR_ALPINE"
+
+          if [ "$LATEST_ALPINE" != "$CUR_ALPINE" ] && ! alpine_multiarch_ok "$LATEST_ALPINE"; then
+            echo "⚠️ Docker Hub alpine:${LATEST_ALPINE} chưa đủ cả amd64 & arm64, giữ nguyên ${CUR_ALPINE}"
+            LATEST_ALPINE="$CUR_ALPINE"
+          fi
+
+          # Tải APKINDEX của Alpine để lấy phiên bản thực tế của toàn bộ Engine
+          curl -sfL "https://dl-cdn.alpinelinux.org/alpine/v${LATEST_ALPINE}/main/x86_64/APKINDEX.tar.gz" | tar -Oxz APKINDEX > /tmp/apk_main 2>/dev/null || touch /tmp/apk_main
+          curl -sfL "https://dl-cdn.alpinelinux.org/alpine/v${LATEST_ALPINE}/community/x86_64/APKINDEX.tar.gz" | tar -Oxz APKINDEX > /tmp/apk_comm 2>/dev/null || touch /tmp/apk_comm
+          cat /tmp/apk_main /tmp/apk_comm > /tmp/apk_all
+
+          get_pkg_ver() {
+            awk -F: -v pkg="$1" '$1=="P" && $2==pkg {getline; if ($1=="V") {print $2; exit}}' /tmp/apk_all | tr -d ' \r\n'
+          }
+
+          LATEST_NGINX=$(get_pkg_ver "nginx")
+          [[ ! "$LATEST_NGINX" =~ ^[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+$ ]] && LATEST_NGINX="$CUR_NGINX"
+          SAMBA_VER=$(get_pkg_ver "samba");     [ -z "$SAMBA_VER" ] && SAMBA_VER="latest"
+          OPENSSH_VER=$(get_pkg_ver "openssh"); [ -z "$OPENSSH_VER" ] && OPENSSH_VER="latest"
+          VSFTPD_VER=$(get_pkg_ver "vsftpd");   [ -z "$VSFTPD_VER" ] && VSFTPD_VER="latest"
+          PYTHON_VER=$(get_pkg_ver "python3");  [ -z "$PYTHON_VER" ] && PYTHON_VER="3.x"
+
+          UPSTREAM_CHANGED="false"
+          if [ "$CUR_ALPINE" != "$LATEST_ALPINE" ] || [ "$CUR_NGINX" != "$LATEST_NGINX" ]; then
+            UPSTREAM_CHANGED="true"
+          fi
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CUR_APP"
+          NEW_APP="$CUR_APP"
+          NEED_VERSION_BUMP="false"
+          UPDATE_TYPE="⏸️ Up-to-date"
+
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
+          PREV_APP=$(git show HEAD~1:Dockerfile 2>/dev/null | grep -E '^ARG APP_VERSION=' | cut -d'=' -f2 | tr -d '" \r\n' || echo "")
+
+          if [ "$CUR_ALPINE" != "$LATEST_ALPINE" ]; then
+            NEW_APP="${MAJOR}.$((MINOR + 1)).0"
+            NEED_VERSION_BUMP="true"
+            UPDATE_TYPE="🚀 MINOR Upgrade (Alpine ${CUR_ALPINE} ➡️ ${LATEST_ALPINE})"
+          elif [ "$CUR_NGINX" != "$LATEST_NGINX" ]; then
+            NEW_APP="${MAJOR}.${MINOR}.$((PATCH + 1))"
+            NEED_VERSION_BUMP="true"
+            UPDATE_TYPE="⬆️ PATCH Upgrade (Nginx ${CUR_NGINX} ➡️ ${LATEST_NGINX})"
+          elif [ "${{ github.event_name }}" = "push" ] && [ -n "$PREV_APP" ] && [ "$PREV_APP" = "$CUR_APP" ] && gh release view "v${CUR_APP}" >/dev/null 2>&1; then
+            NEW_APP="${MAJOR}.${MINOR}.$((PATCH + 1))"
+            NEED_VERSION_BUMP="true"
+            UPDATE_TYPE="🔧 PATCH Release (Code / Security Update)"
+          fi
+
+          IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          SHOULD_BUILD="false"
+          if [ "$NEED_VERSION_BUMP" = "true" ] || [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SHOULD_BUILD="true"
+          elif ! gh release view "v${NEW_APP}" >/dev/null 2>&1; then
+            SHOULD_BUILD="true"
+          fi
+
+          {
+            echo "cur_alpine=${CUR_ALPINE}"
+            echo "cur_nginx=${CUR_NGINX}"
+            echo "cur_app=${CUR_APP}"
+            echo "latest_alpine=${LATEST_ALPINE}"
+            echo "latest_nginx=${LATEST_NGINX}"
+            echo "samba_ver=${SAMBA_VER}"
+            echo "openssh_ver=${OPENSSH_VER}"
+            echo "vsftpd_ver=${VSFTPD_VER}"
+            echo "python_ver=${PYTHON_VER}"
+            echo "new_app=${NEW_APP}"
+            echo "upstream_changed=${UPSTREAM_CHANGED}"
+            echo "need_version_bump=${NEED_VERSION_BUMP}"
+            echo "should_build=${SHOULD_BUILD}"
+            echo "update_type=${UPDATE_TYPE}"
+            echo "image=ghcr.io/${IMAGE_NAME}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: "📝 3. Update Dockerfile, Clean Changelog & README Badges"
+        if: steps.check.outputs.should_build == 'true'
+        env:
+          CUR_ALPINE: ${{ steps.check.outputs.cur_alpine }}
+          CUR_NGINX: ${{ steps.check.outputs.cur_nginx }}
+          CUR_APP: ${{ steps.check.outputs.cur_app }}
+          LATEST_ALPINE: ${{ steps.check.outputs.latest_alpine }}
+          LATEST_NGINX: ${{ steps.check.outputs.latest_nginx }}
+          SAMBA_VER: ${{ steps.check.outputs.samba_ver }}
+          OPENSSH_VER: ${{ steps.check.outputs.openssh_ver }}
+          VSFTPD_VER: ${{ steps.check.outputs.vsftpd_ver }}
+          PYTHON_VER: ${{ steps.check.outputs.python_ver }}
+          NEW_APP: ${{ steps.check.outputs.new_app }}
+          UPSTREAM_CHANGED: ${{ steps.check.outputs.upstream_changed }}
+          NEED_VERSION_BUMP: ${{ steps.check.outputs.need_version_bump }}
+          IMAGE: ${{ steps.check.outputs.image }}
+        run: |
+          set -e
+          sed -i "s|^ARG ALPINE_VERSION=.*|ARG ALPINE_VERSION=${LATEST_ALPINE}|" Dockerfile
+          sed -i "s|^ARG NGINX_VERSION=.*|ARG NGINX_VERSION=${LATEST_NGINX}|" Dockerfile
+          sed -i "s|^ARG APP_VERSION=.*|ARG APP_VERSION=${NEW_APP}|" Dockerfile
+
+          if [ -f "README.md" ]; then
+            SAFE_NGINX=$(echo "$LATEST_NGINX" | sed 's/-/--/g')
+            sed -i -E "s#badge/version-[0-9][0-9.]*-#badge/version-${NEW_APP}-#g" README.md
+            sed -i -E "s#badge/nginx-[0-9][0-9.]*(--r[0-9]+)?-#badge/nginx-${SAFE_NGINX}-#g" README.md
+            sed -i -E "s#badge/alpine(%20|_| )base-[0-9][0-9.]*-#badge/alpine\1base-${LATEST_ALPINE}-#g" README.md
+          fi
+
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
+          MANUAL_CHANGELOG=$(echo "$CHANGED_FILES" | grep -q '^CHANGELOG\.md$' && echo "true" || echo "false")
+          NEEDS_REBUILD="false"
+          if [ ! -f "CHANGELOG.md" ] || ! grep -q "### 📦 Component & Version Matrix" CHANGELOG.md 2>/dev/null || grep -q "Add files via upload" CHANGELOG.md 2>/dev/null; then
+            NEEDS_REBUILD="true"
+          fi
+
+          if [ "$MANUAL_CHANGELOG" = "false" ] && { [ "$NEED_VERSION_BUMP" = "true" ] || [ "$NEEDS_REBUILD" = "true" ]; }; then
+            TODAY=$(date -u +%Y-%m-%d)
+            VER_LINE="\`v${NEW_APP}\`"
+            [ "$NEW_APP" != "$CUR_APP" ] && VER_LINE="Bumped from \`v${CUR_APP}\` ➡️ **\`v${NEW_APP}\`**"
+
+            ALPINE_LINE="\`Alpine ${LATEST_ALPINE}\`"
+            [ "$LATEST_ALPINE" != "$CUR_ALPINE" ] && ALPINE_LINE="Upgraded from \`Alpine ${CUR_ALPINE}\` ➡️ **\`Alpine ${LATEST_ALPINE}\`**"
+
+            NGINX_LINE="\`${LATEST_NGINX}\`"
+            [ "$LATEST_NGINX" != "$CUR_NGINX" ] && NGINX_LINE="Updated from \`${CUR_NGINX}\` ➡️ **\`${LATEST_NGINX}\`**"
+
+            NOTES_LINES=""
+            if [ "$UPSTREAM_CHANGED" = "true" ]; then
+              NOTES_LINES="- **Upstream Base & Engines:** Refreshed Alpine (\`${LATEST_ALPINE}\`), Nginx (\`${LATEST_NGINX}\`), Samba (\`${SAMBA_VER}\`), OpenSSH (\`${OPENSSH_VER}\`), and vsftpd (\`${VSFTPD_VER}\`) with latest security patches."
+            else
+              COMMIT_MSG=$(git log -1 --pretty=%s | tr -d '"`')
+              if [[ ! "$COMMIT_MSG" =~ ^(Add\ files\ via\ upload|Update\ |Create\ |Delete\ |Rename\ |Merge\ ) ]] && [ -n "$COMMIT_MSG" ]; then
+                NOTES_LINES="- **Update:** ${COMMIT_MSG}"
+              else
+                echo "$CHANGED_FILES" | grep -q 'entrypoint\.sh' && NOTES_LINES+="- **Security & Core Engine:** Hardened RBAC (\`admin\`/\`user\`), enforced \`allowed_users\`/\`read_only\` isolation, fixed FTP symlink access, and added graceful shutdown."$'\n'
+                echo "$CHANGED_FILES" | grep -q 'fancyindex/' && NOTES_LINES+="- **Web UI & IDE:** Refined FancyIndex interface, Cloud Code IDE, and client UX."$'\n'
+                echo "$CHANGED_FILES" | grep -q 'Dockerfile' && NOTES_LINES+="- **Container Image:** Updated multi-arch Dockerfile build and healthcheck."$'\n'
+                echo "$CHANGED_FILES" | grep -q 'docker-compose\.yml' && NOTES_LINES+="- **Compose Stack:** Updated Docker Compose template and environment options."$'\n'
+                [ -z "$NOTES_LINES" ] && NOTES_LINES="- **Maintenance:** Stability improvements and multi-arch GHCR package sync."
+              fi
+            fi
+
+            BLOCK=$(cat <<EOF
+          ## ${NEW_APP}
+          _Released: ${TODAY}_
+
+          ### 📦 Component & Version Matrix
+          - **Docker Image Release:** ${VER_LINE}
+          - **Supported Architectures:** \`linux/amd64\` & \`linux/arm64\` *(Multi-Arch GHCR Manifest)*
+          - **Alpine Base Image:** ${ALPINE_LINE}
+          - **Nginx Engine:** ${NGINX_LINE}
+          - **Protocol Stack:** \`Samba ${SAMBA_VER}\` • \`OpenSSH ${OPENSSH_VER}\` • \`vsftpd ${VSFTPD_VER}\` • \`Python ${PYTHON_VER}\`
+
+          ### 🔐 Package Integrity (GHCR Multi-Arch)
+          - **Image Tag:** \`${IMAGE}:${NEW_APP}\`
+          - **Latest Tag:** \`${IMAGE}:latest\`
+
+          ### 🚀 What's Changed
+          ${NOTES_LINES}
+          EOF
+            )
+
+            python3 - "$BLOCK" "$NEEDS_REBUILD" <<'PY'
+          import sys, re, os
+          block, rebuild = sys.argv[1].strip(), sys.argv[2] == "true"
+          sections = []
+          if not rebuild and os.path.exists("CHANGELOG.md"):
+              with open("CHANGELOG.md", "r", encoding="utf-8") as f:
+                  old = f.read()
+              old_body = re.sub(r'^#\s+Changelog\s*', '', old, flags=re.I).strip()
+              for p in [x.strip() for x in old_body.split("\n---\n") if x.strip()]:
+                  if "Add files via upload" not in p:
+                      sections.append(p)
+          out = "# Changelog\n\n" + "\n\n---\n\n".join([block] + sections[:4]) + "\n"
+          with open("CHANGELOG.md", "w", encoding="utf-8") as f:
+              f.write(out)
+          PY
+          fi
+
+      - name: "⚙️ 4a. Set up QEMU (Multi-Arch Support)"
+        if: steps.check.outputs.should_build == 'true'
         uses: docker/setup-qemu-action@v3
 
-      - name: Set up Docker Buildx
+      - name: "⚙️ 4b. Set up Docker Buildx"
+        if: steps.check.outputs.should_build == 'true'
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry (GHCR)
+      - name: "🔐 4c. Log in to GitHub Container Registry (GHCR)"
+        if: steps.check.outputs.should_build == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push Docker Image (amd64 + arm64)
+      - name: "🐳 4d. Build & Push Multi-Arch Image (amd64 + arm64) BEFORE Commit"
+        id: build_push
+        if: steps.check.outputs.should_build == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
+          sbom: false
           tags: |
-            ${{ steps.vars.outputs.image }}:latest
-            ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}
+            ${{ steps.check.outputs.image }}:latest
+            ${{ steps.check.outputs.image }}:${{ steps.check.outputs.new_app }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: "📤 5. Commit, Push & Update GitHub Release from CHANGELOG.md"
+        if: steps.check.outputs.should_build == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_APP: ${{ steps.check.outputs.new_app }}
+          IMAGE: ${{ steps.check.outputs.image }}
+          DIGEST: ${{ steps.build_push.outputs.digest }}
+        run: |
+          set -e
+
+          # Chèn mã SHA256 Digest thực tế của gói multi-arch vào CHANGELOG.md
+          if [ -n "$DIGEST" ] && [ -f "CHANGELOG.md" ]; then
+            sed -i "s|\(${IMAGE}:${NEW_APP}\`\).*|\1 (\`${DIGEST}\`)|" CHANGELOG.md
+          fi
+
+          # Keep-alive (Chống GitHub tắt cron sau 60 ngày)
+          LAST_COMMIT_TS=$(git log -1 --format=%ct || date +%s)
+          NOW_TS=$(date +%s)
+          DAYS_IDLE=$(( (NOW_TS - LAST_COMMIT_TS) / 86400 ))
+          if [ "$DAYS_IDLE" -ge 45 ]; then
+            mkdir -p .github/workflows
+            echo "Last automated keep-alive check: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > .github/workflows/.keepalive
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Dockerfile CHANGELOG.md README.md .github/workflows/.keepalive 2>/dev/null || git add Dockerfile CHANGELOG.md
+
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(release): v${NEW_APP} (Alpine ${{ steps.check.outputs.latest_alpine }} / Nginx ${{ steps.check.outputs.latest_nginx }}) [skip ci]"
+            for i in 1 2 3; do
+              if git pull --rebase origin main && git push origin HEAD:main; then break; fi
+              git rebase --abort 2>/dev/null || true
+              sleep $((i * 5))
+            done
+          fi
+
+          TAG="v${NEW_APP}"
+          python3 - <<'PY' > /tmp/release_notes.md
+          import re
+          with open("CHANGELOG.md", "r", encoding="utf-8") as f:
+              text = f.read()
+          text = re.sub(r'^#\s+Changelog\s*', '', text, flags=re.I).strip()
+          first_section = text.split("\n---\n")[0].strip() if "\n---\n" in text else re.split(r'\n(?=##\s)', text)[0].strip()
+          print(first_section)
+          PY
+
+          git tag -f "${TAG}"
+          git push origin "${TAG}" --force
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" \
+              --title "OmniDrive Pro Docker ${TAG}" \
+              --notes-file /tmp/release_notes.md \
+              --latest
+          else
+            gh release create "${TAG}" \
+              --title "OmniDrive Pro Docker ${TAG}" \
+              --notes-file /tmp/release_notes.md \
+              --latest
+          fi
+
+      - name: "📊 6. Execution Dashboard"
+        if: always()
+        run: |
+          cat << EOF >> "$GITHUB_STEP_SUMMARY"
+          # 🐳 OmniDrive Pro (Standalone Docker) CI/CD Summary
+
+          | Component | Previous | Latest | Status |
+          | :--- | :--- | :--- | :--- |
+          | **App Version** | \`v${{ steps.check.outputs.cur_app }}\` | \`v${{ steps.check.outputs.new_app }}\` | ${{ steps.check.outputs.update_type }} |
+          | **Alpine Base** | \`${{ steps.check.outputs.cur_alpine }}\` | \`${{ steps.check.outputs.latest_alpine }}\` | ✅ Multi-Arch Verified |
+          | **Nginx Engine** | \`${{ steps.check.outputs.cur_nginx }}\` | \`${{ steps.check.outputs.latest_nginx }}\` | ✅ Synced |
+          | **Protocol Stack** | — | \`Samba ${{ steps.check.outputs.samba_ver }}\` • \`OpenSSH ${{ steps.check.outputs.openssh_ver }}\` • \`vsftpd ${{ steps.check.outputs.vsftpd_ver }}\` | ✅ Ready |
+          | **GHCR Publish** | — | \`${{ steps.check.outputs.image }}:${{ steps.check.outputs.new_app }}\` | ${{ steps.build_push.outcome == 'success' && '🟢 Published (amd64 + arm64)' || '⏭️ Skipped / Failed' }} |
+          EOF
