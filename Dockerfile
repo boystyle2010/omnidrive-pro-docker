@@ -24,7 +24,7 @@ RUN apk update && \
         zip \
         unzip \
         python3 \
-        apache2-utils \
+        shadow \
         openssl \
         samba \
         samba-common-tools \
@@ -36,7 +36,6 @@ RUN apk update && \
     && mkdir -p /run/nginx /var/lib/nginx/tmp/client_body /var/webdav_root /data/wpro /usr/share/nginx/fancyindex /ssl
 
 # Self-host front-end libraries (no runtime CDN dependency, no third-party script risk).
-# curl -f makes the build FAIL on any download error instead of shipping a broken UI.
 RUN set -eux; \
     V=/usr/share/nginx/fancyindex/vendor; \
     mkdir -p "$V/ace"; \
@@ -54,7 +53,6 @@ RUN set -eux; \
     curl -fsSL --retry 3 https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js  -o "$V/pdf.worker.min.js"; \
     curl -fsSL --retry 3 https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css                -o "$V/xterm.min.css"; \
     curl -fsSL --retry 3 https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js                 -o "$V/xterm.min.js"; \
-    # sanity check: every file must be non-empty
     find "$V" -type f -size -100c -print -exec false {} +
 
 # Copy FancyIndex UI & Login page
@@ -68,7 +66,9 @@ COPY icon.png /usr/share/nginx/fancyindex/apple-touch-icon.png
 COPY entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
-# Các cổng dịch vụ: WebDAV/UI (8090), SMB (445), SFTP (2222), FTP (2121 + Passive 21000-21002)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD pgrep nginx >/dev/null && pgrep -f wpro_api.py >/dev/null || exit 1
+
 EXPOSE 8090 445 2222 2121 21000-21002
 
 VOLUME ["/data", "/storage", "/backup", "/ssl"]
