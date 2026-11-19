@@ -2,7 +2,8 @@ name: omnidrive-pro
 
 services:
   omnidrive-pro:
-    image: ghcr.io/boystyle2010/omnidrive-pro:latest
+    # Kiểm tra khớp đúng tên package trên GitHub Packages (omnidrive-pro hoặc omnidrive-pro-docker)
+    image: ghcr.io/boystyle2010/omnidrive-pro-docker:latest
     container_name: omnidrive-pro
     restart: unless-stopped
     labels:
@@ -12,7 +13,10 @@ services:
     environment:
       - TZ=America/Denver
 
-      # !!! CHANGE THIS PASSWORD before first start !!!
+      # !!! ĐỔI MẬT KHẨU NÀY trước khi khởi động lần đầu !!!
+      # Tài khoản chính từ OMNI_USER mặc định có role "admin".
+      # Để thêm tài khoản phụ (role: "user") và phân quyền thư mục (allowed_users, read_only),
+      # chỉnh trực tiếp trong file ./data/options.json rồi restart container.
       - OMNI_USER=admin
       - OMNI_PASS=changeme_strong_password
 
@@ -22,60 +26,45 @@ services:
       - FANCY_UI=true
       - SHOW_DOTFILES=true
 
-      # Web Terminal runs shell commands as root inside the container.
-      # Disabled by default. Set to true only if you trust everyone who can log in
-      # and the service is not reachable from untrusted networks.
+      # Web Terminal (chỉ tài khoản role "admin" mới dùng được, tài khoản "user" luôn bị chặn)
       - ENABLE_TERMINAL=false
 
-      # Root access.
-      #   false (default): everything runs as the normal user "omnidrive" (PUID:PGID) and can only touch
-      #          what that user may touch. Make sure PUID/PGID own the folders you want to manage
-      #          (the 4 data volumes are fixed automatically, a mounted host folder is NOT touched).
-      #   true : file operations, Web Terminal and zip jobs run as root -> full file-manager power.
-      #          Needed to manage system / other users' files (e.g. a mounted /DATA or the whole host).
+      # Chế độ quyền thực thi (false = chạy dưới user omnidrive PUID:PGID; true = chạy quyền root)
       - ROOT_ACCESS=false
       # - PUID=1000
       # - PGID=1000
 
-      # FTP encryption (FTPS, explicit TLS, certificate is generated automatically):
-      #   optional (default) = encrypted if the client asks for it, plain FTP still works
-      #   required           = plain FTP is refused
-      #   off                = no encryption
+      # Mã hóa FTP (optional | required | off)
       # - FTP_TLS=optional
 
-      # Root lock (default true): nothing can be created, renamed or deleted directly at the top level
-      # (Root) over WebDAV / Web UI / SFTP / FTP; the "OmniDrive" SMB share is read-only (use the named SMB shares to write).
+      # Khóa thư mục gốc Root (true = không cho tạo/xóa file trực tiếp ngoài Root)
       # - LOCK_ROOT=true
 
-      # FTP Passive Mode only: uncomment and set this to the LAN IP of the
-      # machine running Docker (find it with: hostname -I).
-      # Without it, FTP clients may hang when listing folders.
-      # Not needed for Web UI, WebDAV, SMB or SFTP.
+      # Connect Hub & FTP Passive: đặt IP LAN của máy chủ Docker (và tên miền Cloudflare nếu có)
+      # - LAN_IP=192.168.1.100
       # - FTP_PASV_ADDRESS=192.168.1.100
+      # - PUBLIC_URL=https://drive.example.com
 
-      # Reverse proxy / Cloudflare Tunnel / Nginx Proxy Manager users:
-      # list the IP or subnet your proxy connects from (comma-separated) so the real
-      # client IP is used for the audit log, rate limiting and login lockout.
-      # Default: 127.0.0.0/8,172.16.0.0/12 (loopback + Docker networks). Use "none" to disable.
-      # - TRUSTED_PROXIES=192.168.1.10,172.16.0.0/12
+      # Reverse proxy / Cloudflare Tunnel: IP hoặc dải IP proxy tin cậy để lấy đúng IP thật của client
+      # - TRUSTED_PROXIES=127.0.0.0/8,172.16.0.0/12
       # - REAL_IP_HEADER=X-Forwarded-For
 
-      # Connect Hub only: if you publish a different HOST port for a protocol (e.g. "4450:445" because
-      # port 445 is already used on your machine), tell the UI so it shows the right address.
-      # - SMB_PORT=4450
+      # Connect Hub: nếu bạn đổi cổng host bên dưới (ví dụ "8095:8090" hoặc "4450:445"),
+      # khai báo lại tại đây để UI hiển thị đúng địa chỉ kết nối
+      # - EXTERNAL_PORT=8090
+      # - SMB_PORT=445
       # - SFTP_PORT=2222
       # - FTP_PORT=2121
 
-      # Largest folder (in MB) that can be downloaded as a zip via a share link.
+      # Giới hạn dung lượng thư mục tải dạng ZIP qua link chia sẻ (MB)
       # - SHARE_ZIP_MAX_MB=2048
     ports:
-      - "8090:8090"               # Web UI, WebDAV & Share Links
+      - "8090:8090"               # Web UI, WebDAV & Share Links (có thể đổi thành "8095:8090" nếu trùng)
       - "445:445"                 # SMB / Samba
-      - "2222:2222"               # SFTP
-      - "2121:2121"               # FTP control port
+      - "2222:2222"               # SFTP (Chỉ Admin)
+      - "2121:2121"               # FTP control port (Chỉ Admin)
       - "21000-21002:21000-21002" # FTP passive data ports
     volumes:
-      # 1. OmniDrive Pro config, audit log & share links
       - ./data:/data
       - ./ssl:/ssl
       - ./backup:/backup
@@ -83,14 +72,11 @@ services:
       - ./media:/media
       - ./share:/share
 
-      # 2. OPTIONAL - FULL HOST ACCESS. Uncomment to browse/edit EVERY file on the
-      #    host (appears as /host_system). Powerful and dangerous: anyone who can
-      #    log in can read, change or delete anything on your server.
+      # TÙY CHỌN: Toàn quyền máy chủ Host (chỉ tài khoản role "admin" mới truy cập được /host_system)
       # - /:/host_root:rw
 
-      # 3. OPTIONAL - shortcuts: any folder mounted under /mnt/<Name> appears on the
-      #    home screen and over every protocol. Adjust to folders that exist on your
-      #    system, or remove. (/DATA exists on CasaOS / ZimaOS only.)
+      # TÙY CHỌN: Mount thêm thư mục vào /mnt/<Ten> (mặc định chỉ admin truy cập, muốn chia sẻ cho user
+      # thì thêm vào mục "shares" trong ./data/options.json)
       # - /DATA:/mnt/DATA
       # - /home:/mnt/home
     x-casaos:
