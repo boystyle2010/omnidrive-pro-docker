@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.34
+_Released: 2026-11-22_
+
+### 📦 Component & Version Matrix
+- **Docker Image Release:** Bumped from `v1.0.33` ➡️ **`v1.0.34`**
+- **Supported Architectures:** `linux/amd64` & `linux/arm64` *(Multi-Arch GHCR Manifest)*
+- **Alpine Base Image:** `Alpine 3.24`
+- **Nginx Engine:** `1.30.7-r0`
+- **Protocol Stack:** `Samba 4.23.8-r0` • `OpenSSH 10.3_p1-r2` • `vsftpd 3.0.5-r3` • `Python 3.14.10-r1`
+
+### 🔐 Package Integrity (GHCR Multi-Arch)
+- **Image Tag:** `ghcr.io/boystyle2010/omnidrive-pro-docker:1.0.34` (`sha256:29ded861badff8196b19709a1cc643d6bbdf28c16cc46abdd6772c147b326149`)
+- **Latest Tag:** `ghcr.io/boystyle2010/omnidrive-pro-docker:latest`
+
+### 🚀 What's Changed
+- **Update:** feat: OMNI_PASS is applied only when it changes, optional auto-removal from docker-compose.yml
+
+---
+
 ## 1.0.33
 _Released: 2026-11-22_
 
