@@ -27,15 +27,20 @@ jobs:
     if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip ci]')
     steps:
       - name: "📥 1. Checkout Repository"
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+
+      - name: "🧩 2a. Update & Test Web UI Libraries (vendor-fetch.sh)"
+        id: vendor
+        run: bash .github/scripts/vendor_auto_update.sh
 
       - name: "🔍 2. Check Alpine Base & Protocol Engines (Multi-Arch Verified)"
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VENDOR_CHANGED: ${{ steps.vendor.outputs.vendor_changed }}
         run: |
           set -e
           CUR_ALPINE=$(grep -E '^ARG ALPINE_VERSION=' Dockerfile | cut -d'=' -f2 | tr -d '" \r\n')
@@ -78,6 +83,22 @@ jobs:
           VSFTPD_VER=$(get_pkg_ver "vsftpd");   [ -z "$VSFTPD_VER" ] && VSFTPD_VER="latest"
           PYTHON_VER=$(get_pkg_ver "python3");  [ -z "$PYTHON_VER" ] && PYTHON_VER="3.x"
 
+          # Dấu vân tay phiên bản các gói quan trọng (dịch vụ mạng + thư viện mã hóa + nền tảng):
+          # bất kỳ bản vá bảo mật nào của Alpine cho các gói này -> build lại image (patch release)
+          SEC_PKGS="nginx nginx-mod-http-dav-ext nginx-mod-http-fancyindex samba samba-server openssh-server vsftpd python3 git zip openssl libssl3 libcrypto3 musl busybox zlib curl libcurl jq bash shadow sqlite-libs expat"
+          FP_SRC="alpine=${LATEST_ALPINE};"
+          for p in $SEC_PKGS; do FP_SRC="${FP_SRC}${p}=$(get_pkg_ver "$p");"; done
+          CUR_FP=$(grep -oP '^ARG APK_FINGERPRINT=\K\S+' Dockerfile | head -n1 | tr -d '[:space:]')
+          LATEST_FP=""
+          PKGS_CHANGED="false"
+          if [ -s /tmp/apk_main ] && [ -s /tmp/apk_comm ]; then
+            LATEST_FP=$(printf '%s' "$FP_SRC" | sha256sum | cut -c1-16)
+            [ "$LATEST_FP" != "$CUR_FP" ] && PKGS_CHANGED="true"
+          else
+            echo "⚠️ Không tải được APKINDEX, bỏ qua kiểm tra bản vá gói Alpine lần này"
+          fi
+          echo "Packages fingerprint: ${CUR_FP:-none} -> ${LATEST_FP:-unknown} (changed=${PKGS_CHANGED})"
+
           UPSTREAM_CHANGED="false"
           if [ "$CUR_ALPINE" != "$LATEST_ALPINE" ] || [ "$CUR_NGINX" != "$LATEST_NGINX" ]; then
             UPSTREAM_CHANGED="true"
@@ -99,6 +120,10 @@ jobs:
             NEW_APP="${MAJOR}.${MINOR}.$((PATCH + 1))"
             NEED_VERSION_BUMP="true"
             UPDATE_TYPE="⬆️ PATCH Upgrade (Nginx ${CUR_NGINX} ➡️ ${LATEST_NGINX})"
+          elif [ "$PKGS_CHANGED" = "true" ] || [ "$VENDOR_CHANGED" = "true" ]; then
+            NEW_APP="${MAJOR}.${MINOR}.$((PATCH + 1))"
+            NEED_VERSION_BUMP="true"
+            UPDATE_TYPE="🛡️ PATCH Release (Alpine security patches / Web UI libraries)"
           elif [ "${{ github.event_name }}" = "push" ] && [ -n "$PREV_APP" ] && [ "$PREV_APP" = "$CUR_APP" ] && gh release view "v${CUR_APP}" >/dev/null 2>&1; then
             NEW_APP="${MAJOR}.${MINOR}.$((PATCH + 1))"
             NEED_VERSION_BUMP="true"
@@ -125,6 +150,8 @@ jobs:
             echo "python_ver=${PYTHON_VER}"
             echo "new_app=${NEW_APP}"
             echo "upstream_changed=${UPSTREAM_CHANGED}"
+            echo "pkgs_changed=${PKGS_CHANGED}"
+            echo "latest_fp=${LATEST_FP}"
             echo "need_version_bump=${NEED_VERSION_BUMP}"
             echo "should_build=${SHOULD_BUILD}"
             echo "update_type=${UPDATE_TYPE}"
@@ -147,9 +174,17 @@ jobs:
           UPSTREAM_CHANGED: ${{ steps.check.outputs.upstream_changed }}
           NEED_VERSION_BUMP: ${{ steps.check.outputs.need_version_bump }}
           IMAGE: ${{ steps.check.outputs.image }}
+          PKGS_CHANGED: ${{ steps.check.outputs.pkgs_changed }}
+          LATEST_FP: ${{ steps.check.outputs.latest_fp }}
+          VENDOR_CHANGED: ${{ steps.vendor.outputs.vendor_changed }}
+          VENDOR_NOTES: ${{ steps.vendor.outputs.vendor_notes }}
         run: |
           set -e
           sed -i "s|^ARG ALPINE_VERSION=.*|ARG ALPINE_VERSION=${LATEST_ALPINE}|" Dockerfile
+          # Ghi dấu vân tay gói Alpine mới (ARG dùng trong RUN -> build lại lớp apk upgrade)
+          if [ "$PKGS_CHANGED" = "true" ] && [ -n "$LATEST_FP" ]; then
+            sed -i "s|^ARG APK_FINGERPRINT=.*|ARG APK_FINGERPRINT=${LATEST_FP}|" Dockerfile
+          fi
           sed -i "s|^ARG NGINX_VERSION=.*|ARG NGINX_VERSION=${LATEST_NGINX}|" Dockerfile
           sed -i "s|^ARG APP_VERSION=.*|ARG APP_VERSION=${NEW_APP}|" Dockerfile
 
@@ -193,6 +228,13 @@ jobs:
                 [ -z "$NOTES_LINES" ] && NOTES_LINES="- **Maintenance:** Stability improvements and multi-arch GHCR package sync."
               fi
             fi
+            NL=$'\n'
+            if [ "$PKGS_CHANGED" = "true" ] && [ "$UPSTREAM_CHANGED" != "true" ]; then
+              NOTES_LINES="${NOTES_LINES:+${NOTES_LINES}${NL}}- **Security:** Rebuilt on the latest Alpine \`${LATEST_ALPINE}\` security updates (Samba \`${SAMBA_VER}\`, OpenSSH \`${OPENSSH_VER}\`, vsftpd \`${VSFTPD_VER}\`, OpenSSL, Python \`${PYTHON_VER}\`)."
+            fi
+            if [ "$VENDOR_CHANGED" = "true" ] && [ -n "$VENDOR_NOTES" ]; then
+              NOTES_LINES="${NOTES_LINES:+${NOTES_LINES}${NL}}${VENDOR_NOTES}"
+            fi
 
             BLOCK=$(cat <<EOF
           ## ${NEW_APP}
@@ -233,15 +275,15 @@ jobs:
 
       - name: "⚙️ 4a. Set up QEMU (Multi-Arch Support)"
         if: steps.check.outputs.should_build == 'true'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: "⚙️ 4b. Set up Docker Buildx"
         if: steps.check.outputs.should_build == 'true'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: "🔐 4c. Log in to GitHub Container Registry (GHCR)"
         if: steps.check.outputs.should_build == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -250,7 +292,7 @@ jobs:
       - name: "🐳 4d. Build & Push Multi-Arch Image (amd64 + arm64) BEFORE Commit"
         id: build_push
         if: steps.check.outputs.should_build == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -289,7 +331,7 @@ jobs:
             echo "Last automated keep-alive check: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > .github/.keepalive
           fi
 
-          git add Dockerfile CHANGELOG.md README.md .github/.keepalive 2>/dev/null || git add Dockerfile CHANGELOG.md
+          git add Dockerfile CHANGELOG.md README.md vendor-fetch.sh .github/.keepalive 2>/dev/null || git add Dockerfile CHANGELOG.md vendor-fetch.sh
 
           if ! git diff --staged --quiet; then
             export COMMIT_MSG="chore(release): v${NEW_APP} (Alpine ${LATEST_ALPINE} / Nginx ${LATEST_NGINX}) [skip ci]"

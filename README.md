@@ -63,7 +63,7 @@ This repository automatically tracks official **Alpine Linux** and **Nginx** ups
 ## 🚀 Quick Start (Docker Compose)
 
 > ⚠️ **Read before you start** — things to change or know about the defaults:
-> 1. **Change `OMNI_PASS`.** The default password is public. Anyone who guesses it gets a root-level terminal and full file access (see [Security Notes](#-security-notes)).
+> 1. **Change `OMNI_PASS`.** The default password is public, so the container **refuses to start** while any account still uses `changeme_strong_password` (the log says which one). Anyone who guessed it would get full file access (see [Security Notes](#-security-notes)).
 > 2. **Set `FTP_PASV_ADDRESS`** to your server's LAN IP *only if you use FTP* (find it with `hostname -I`). Not needed for Web UI, WebDAV, SMB or SFTP.
 > 3. **Terminal and full-host access are OFF by default** (`ENABLE_TERMINAL=false`, `/:/host_root` commented out). Enable them only if you understand the risk — see [Security Notes](#-security-notes).
 > 4. **Check that the ports are free** (`8090`, `445`, `2222`, `2121`, `21000-21002`). See [Troubleshooting](#-troubleshooting) if Docker reports `port is already allocated`.
@@ -129,8 +129,10 @@ services:
       # Reverse proxy / Cloudflare Tunnel / Nginx Proxy Manager users:
       # list the IP or subnet your proxy connects from (comma-separated) so the real
       # client IP is used for the audit log, rate limiting and login lockout.
-      # Default: 127.0.0.0/8,172.16.0.0/12 (loopback + Docker networks). Use "none" to disable.
-      # - TRUSTED_PROXIES=192.168.1.10,172.16.0.0/12
+      # Default: 127.0.0.1 only. Trusting all Docker networks (172.16.0.0/12) would let LAN clients that reach
+      # the container through the Docker gateway fake their IP and bypass the login lockout.
+      # Use "none" to disable. Example for a proxy container on the default bridge network:
+      # - TRUSTED_PROXIES=172.17.0.0/16
       # - REAL_IP_HEADER=X-Forwarded-For
 
       # Largest folder (in MB) that can be downloaded as a zip via a share link.
@@ -204,6 +206,18 @@ docker compose up -d
 ```
 
 Your settings, users, audit log and share links are stored in `./data` and are preserved across updates. After updating, hard-refresh the browser (`Ctrl+F5` / `Cmd+Shift+R`) so it does not use cached UI files.
+
+### 🤖 Automatic maintenance (repository owners)
+
+The workflows in this repository keep the image up to date by themselves and commit straight to `main`:
+
+| What | When | How it stays safe |
+| :--- | :--- | :--- |
+| Alpine base, nginx and **Alpine security patches** (Samba, OpenSSH, vsftpd, OpenSSL, Python…) | daily | A fingerprint of the package versions changes → image rebuilt with `apk upgrade` for `amd64` + `arm64`, patch release |
+| **Web UI libraries** (`vendor-fetch.sh`: Ace, marked, DOMPurify, js-yaml, JSZip, pdf.js, xterm.js) | daily | Checksum-verified against npm, then a headless-browser test opens the real UI. If the newest major fails, the newest version of the same major is tried; if that fails too, nothing changes |
+| **GitHub Actions** used by the workflows (pinned by commit SHA) | weekly (Monday) | Only updated when the new release runs on Node.js 24+ and still has every input/output the workflows use |
+
+Everything uses the built-in `GITHUB_TOKEN` except the weekly GitHub Actions update: GitHub does not let the built-in token edit `.github/workflows/`, so that job reads a `WORKFLOW_TOKEN` secret (fine-grained token, **Contents** + **Workflows: Read and write**). The same token can serve this repository and `ha-addons` if both are selected under *Repository access*, but the secret has to be added to **each** repository (**Settings → Secrets and variables → Actions**). Without it the job only reports new versions.
 
 ---
 
@@ -318,7 +332,7 @@ On first boot, OmniDrive Pro automatically generates `/data/options.json` from y
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `OMNI_USER` | `admin` | Default administrator username for Web UI, WebDAV, SMB, SFTP, and FTP. |
-| `OMNI_PASS` | `changeme_strong_password` | Default administrator password. |
+| `OMNI_PASS` | `changeme_strong_password` | Administrator password. **Must be changed:** the container will not start while an account still uses the default. |
 | `WEBDAV_PORT` | `8090` | Internal HTTP/HTTPS port for the Web UI and WebDAV server. |
 | `SMB_ENABLED` | `true` | Enable or disable the built-in Samba server (`445/tcp`). |
 | `SFTP_ENABLED` | `true` | Enable or disable the built-in OpenSSH SFTP server (`2222/tcp`). |
@@ -332,7 +346,7 @@ On first boot, OmniDrive Pro automatically generates `/data/options.json` from y
 | `OMNI_PASS_FILE` | *(empty)* | Optional path of a file (Docker secret) that holds the password instead of `OMNI_PASS`. |
 | `PUID` / `PGID` | `1000` / `1000` | User and group IDs used when `ROOT_ACCESS=false`. Use the owner of the folders you want to manage (`id <user>` on the host). The 4 data volumes (`storage`, `media`, `share`, `backup`) are handed to this user automatically; mounted host folders are never re-owned. |
 | `ENABLE_TERMINAL` | `true` (image) / `false` (compose files in this repo) | Enables the Web Terminal, which runs shell commands as **root**. When `false`, the Terminal button is hidden and the API refuses commands. |
-| `TRUSTED_PROXIES` | `127.0.0.0/8,172.16.0.0/12` | Comma-separated IPs/subnets of your reverse proxy / tunnel. Only these may tell OmniDrive the real client IP (via `REAL_IP_HEADER`). Needed for correct audit-log IPs, per-user rate limiting and login lockout behind a proxy. Use `none` to disable. |
+| `TRUSTED_PROXIES` | `127.0.0.1` | Comma-separated IPs/subnets of your reverse proxy / tunnel. Only these may tell OmniDrive the real client IP (via `REAL_IP_HEADER`). Needed for correct audit-log IPs, per-user rate limiting and login lockout behind a proxy. Use `none` to disable. |
 | `REAL_IP_HEADER` | `X-Forwarded-For` | Header carrying the real client IP (e.g. `CF-Connecting-IP` for Cloudflare). |
 | `SHARE_ZIP_MAX_MB` | `2048` | Maximum size (MB) of a folder that can be downloaded as a zip through a share link. Larger folders are refused (protects host disk and CPU). |
 | `SSL` | `false` | Set to `true` to enable native HTTPS using `/ssl/fullchain.pem` and `/ssl/privkey.pem`. |
@@ -349,7 +363,7 @@ On first boot, OmniDrive Pro automatically generates `/data/options.json` from y
 
 OmniDrive Pro is powerful by design, so please harden it before exposing it beyond your home network:
 
-- **Change the default password** (`changeme_strong_password`). Use a long, unique one.
+- **Change the default password** (`changeme_strong_password`). Use a long, unique one. Since this release the container stops at start-up (exit code 1, error in `docker logs`) while any account still has it.
 - **The Web Terminal runs shell commands as root inside the container** and is **disabled by default** (`ENABLE_TERMINAL=false`). Combined with the optional `/:/host_root:rw` mount, anyone who logs in can read, modify or delete **any file on your host**. Enable them only on a trusted network, behind strong authentication.
 - **CSRF protection:** every state-changing API call requires a custom header that browsers will not send cross-origin, so other websites (or other apps on sibling subdomains) cannot trigger actions with your logged-in session.
 - **Do not publish ports directly to the internet.** Prefer a VPN (Tailscale / WireGuard) or a Cloudflare Zero Trust Tunnel with extra access control. If you must expose it, enable HTTPS (`SSL=true`) or terminate TLS at a reverse proxy.
