@@ -75,7 +75,7 @@ name: omnidrive-pro
 
 services:
   omnidrive-pro:
-    image: ghcr.io/boystyle2010/omnidrive-pro:latest
+    image: ghcr.io/boystyle2010/omnidrive-pro-docker:latest
     container_name: omnidrive-pro
     restart: unless-stopped
     labels:
@@ -205,7 +205,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Your settings, users, audit log and share links are stored in `./data` and are preserved across updates. After updating, hard-refresh the browser (`Ctrl+F5` / `Cmd+Shift+R`) so it does not use cached UI files.
+`docker compose pull` only downloads the new image: your own `docker-compose.yml` (ports, volumes, environment) is never modified, and your settings, users, audit log and share links are stored in `./data` and are preserved across updates. Read the release notes for new or changed defaults, they apply to the variables you did **not** set yourself. After updating, hard-refresh the browser (`Ctrl+F5` / `Cmd+Shift+R`) so it does not use cached UI files.
 
 ### 🤖 Automatic maintenance (repository owners)
 
@@ -239,7 +239,7 @@ CasaOS uses port `445` for its built-in file sharing by default.
 name: omnidrive-pro
 services:
   omnidrive-pro:
-    image: ghcr.io/boystyle2010/omnidrive-pro:latest
+    image: ghcr.io/boystyle2010/omnidrive-pro-docker:latest
     container_name: omnidrive-pro
     restart: unless-stopped
     environment:

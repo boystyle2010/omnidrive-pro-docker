@@ -218,13 +218,17 @@ jobs:
               NOTES_LINES="- **Upstream Base & Engines:** Refreshed Alpine (\`${LATEST_ALPINE}\`), Nginx (\`${LATEST_NGINX}\`), Samba (\`${SAMBA_VER}\`), OpenSSH (\`${OPENSSH_VER}\`), and vsftpd (\`${VSFTPD_VER}\`) with latest security patches."
             else
               COMMIT_MSG=$(git log -1 --pretty=%s | tr -d '"`')
+              # Merge pull request: lấy tiêu đề commit thật của nhánh được merge thay vì "Merge pull request #..."
+              if git rev-parse -q --verify HEAD^2 >/dev/null 2>&1; then
+                COMMIT_MSG=$(git log -1 --pretty=%s HEAD^2 | tr -d '"`')
+              fi
               if [[ ! "$COMMIT_MSG" =~ ^(Add\ files\ via\ upload|Update\ |Create\ |Delete\ |Rename\ |Merge\ ) ]] && [ -n "$COMMIT_MSG" ]; then
                 NOTES_LINES="- **Update:** ${COMMIT_MSG}"
               else
                 echo "$CHANGED_FILES" | grep -q 'entrypoint\.sh' && NOTES_LINES+="- **Security & Core Engine:** Hardened RBAC (\`admin\`/\`user\`), enforced \`allowed_users\`/\`read_only\` isolation, fixed FTP symlink access, and added graceful shutdown."$'\n'
                 echo "$CHANGED_FILES" | grep -q 'fancyindex/' && NOTES_LINES+="- **Web UI & IDE:** Refined FancyIndex interface, Cloud Code IDE, and client UX."$'\n'
                 echo "$CHANGED_FILES" | grep -q 'Dockerfile' && NOTES_LINES+="- **Container Image:** Updated multi-arch Dockerfile build and healthcheck."$'\n'
-                echo "$CHANGED_FILES" | grep -q 'docker-compose\.yml' && NOTES_LINES+="- **Compose Stack:** Updated Docker Compose template and environment options."$'\n'
+                echo "$CHANGED_FILES" | grep -q 'docker-compose\.yml' && NOTES_LINES+="- **Compose Template:** Updated the example \`docker-compose.yml\` in the repository (your own compose file is never changed by an image update)."$'\n'
                 [ -z "$NOTES_LINES" ] && NOTES_LINES="- **Maintenance:** Stability improvements and multi-arch GHCR package sync."
               fi
             fi
