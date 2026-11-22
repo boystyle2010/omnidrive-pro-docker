@@ -167,6 +167,16 @@ h1{margin:0;font-size:23px;font-weight:700;letter-spacing:-.02em}
     inpPass.type = inpPass.type === 'password' ? 'text' : 'password';
   });
 
+  // Only allow redirects back to a page on this same origin (blocks javascript: URLs and open redirects)
+  function safeRedirect(rd) {
+    if (!rd || rd.charAt(0) !== '/') return '/';
+    try {
+      var u = new URL(rd, location.href);
+      if (u.origin !== location.origin || (u.protocol !== 'http:' && u.protocol !== 'https:')) return '/';
+      return u.pathname + u.search + u.hash;
+    } catch (e) { return '/'; }
+  }
+
   var form = document.getElementById('loginForm'), errBox = document.getElementById('errBox'), btn = document.getElementById('btnSubmit');
   form.addEventListener('submit', function (e) {
     e.preventDefault();
@@ -184,8 +194,7 @@ h1{margin:0;font-size:23px;font-weight:700;letter-spacing:-.02em}
       })
     }).then(function (r) { return r.json(); }).then(function (res) {
       if (res && res.ok) {
-        var params = new URLSearchParams(location.search);
-        location.replace(params.get('rd') || '/');
+        location.replace(safeRedirect(new URLSearchParams(location.search).get('rd')));
       } else {
         errBox.textContent = (res && res.error) || 'Invalid username or password';
         errBox.classList.add('show');

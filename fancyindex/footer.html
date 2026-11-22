@@ -1035,8 +1035,10 @@
       return true;
     }
     try {
-      var src = getEditorContent().replace(/![a-zA-Z0-9_]+\s+/g, '');
-      jsyaml.loadAll(src);
+      // Bỏ các tag riêng của Home Assistant (!include, !secret, !input...) nhưng giữ tag chuẩn YAML (!!set, !!binary...)
+      var src = getEditorContent().replace(/(^|[^!])![a-zA-Z_][a-zA-Z0-9_]*(?=[ \t\r\n]|$)/gm, '$1');
+      // Home Assistant đọc YAML theo chuẩn 1.1 (PyYAML): dùng schema YAML 1.1 (js-yaml 5+), bản cũ dùng mặc định
+      jsyaml.loadAll(src, { schema: jsyaml.YAML11_SCHEMA || jsyaml.DEFAULT_SCHEMA });
       yamlAlert.className = 'yaml-alert show yaml-ok';
       yamlAlert.textContent = '✓ Valid Home Assistant YAML syntax';
       if (aceEditor) aceEditor.session.clearAnnotations();
@@ -1183,11 +1185,15 @@
       '</div>' +
       '<div style="overflow:auto;max-width:100%;max-height:78vh;display:grid;place-items:center"><canvas id="pdfCanvas"></canvas></div>';
 
-    if (!window.pdfjsLib) {
+    function pdfFallback() {
       edPreview.innerHTML = '<iframe src="' + esc(fullUrl) + '" style="width:100%;height:82vh;border:0;border-radius:8px;background:#fff"></iframe>';
-      return;
     }
-    pdfjsLib.GlobalWorkerOptions.workerSrc = ingressPrefix + '/.fancyindex/vendor/pdf.worker.min.js';
+    var pdfCanvasEl = document.getElementById('pdfCanvas');
+    loadPdfJs().then(function (pdfjsLib) {
+    if (document.getElementById('pdfCanvas') !== pdfCanvasEl) return; // người dùng đã mở file khác
+    if (!pdfjsLib) { pdfFallback(); return; }
+    var pdfBase = ingressPrefix + '/.fancyindex/vendor/pdfjs/';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfBase + 'pdf.worker.module.js';
     var pdfDoc = null, pageNum = 1, scale = 1.35;
     var canvas = document.getElementById('pdfCanvas'), ctx = canvas.getContext('2d'), info = document.getElementById('pdfPageInfo');
 
@@ -1195,20 +1201,35 @@
       pdfDoc.getPage(num).then(function (page) {
         var viewport = page.getViewport({ scale: scale });
         canvas.height = viewport.height; canvas.width = viewport.width;
-        page.render({ canvasContext: ctx, viewport: viewport });
+        page.render({ canvas: canvas, canvasContext: ctx, viewport: viewport });
         info.textContent = 'Page ' + num + ' / ' + pdfDoc.numPages + ' (' + Math.round(scale * 100) + '%)';
       });
     }
-    pdfjsLib.getDocument(fullUrl).promise.then(function (doc) {
+    pdfjsLib.getDocument({
+      url: fullUrl, isEvalSupported: false, enableScripting: false,
+      cMapUrl: pdfBase + 'cmaps/', cMapPacked: true,
+      standardFontDataUrl: pdfBase + 'standard_fonts/', wasmUrl: pdfBase + 'wasm/'
+    }).promise.then(function (doc) {
       pdfDoc = doc; renderPage(pageNum);
-    }).catch(function () {
-      edPreview.innerHTML = '<iframe src="' + esc(fullUrl) + '" style="width:100%;height:82vh;border:0;border-radius:8px;background:#fff"></iframe>';
-    });
+    }).catch(pdfFallback);
 
     document.getElementById('pdfPrev').addEventListener('click', function () { if (pdfDoc && pageNum > 1) { pageNum--; renderPage(pageNum); } });
     document.getElementById('pdfNext').addEventListener('click', function () { if (pdfDoc && pageNum < pdfDoc.numPages) { pageNum++; renderPage(pageNum); } });
     document.getElementById('pdfZoomIn').addEventListener('click', function () { if (pdfDoc) { scale = Math.min(3.0, scale + 0.25); renderPage(pageNum); } });
     document.getElementById('pdfZoomOut').addEventListener('click', function () { if (pdfDoc) { scale = Math.max(0.6, scale - 0.25); renderPage(pageNum); } });
+    });
+  }
+
+  // pdf.js là ES module: chỉ nạp (import động) khi người dùng mở file PDF lần đầu
+  var pdfJsPromise = null;
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (!pdfJsPromise) {
+      pdfJsPromise = import(ingressPrefix + '/.fancyindex/vendor/pdfjs/pdf.module.js')
+        .then(function (m) { window.pdfjsLib = m; return m; })
+        .catch(function () { pdfJsPromise = null; return null; });
+    }
+    return pdfJsPromise;
   }
 
   function openHexViewer(label, href) {

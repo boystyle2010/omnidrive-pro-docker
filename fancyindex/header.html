@@ -6,24 +6,25 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b162c">
 <title>OmniDrive Pro</title>
-<link rel="icon" type="image/png" href="/.fancyindex/icon.png">
-<link rel="apple-touch-icon" href="/.fancyindex/apple-touch-icon.png">
+<!-- Front-end libraries are self-hosted (downloaded and checksum-verified at image build time, see vendor-fetch.sh).
+     No third-party CDN is contacted at runtime: faster, works offline, no supply-chain risk.
+     URLs get the Home Assistant Ingress prefix when needed (absolute /.fancyindex/ paths would hit Home Assistant itself). -->
 <script>
-  if (window.self === window.top && !/^\/api\/hassio_ingress\//.test(location.pathname)) {
-    document.documentElement.classList.add('standalone-web');
-  }
+  (function () {
+    var m = location.pathname.match(/^(\/api\/hassio_ingress\/[^\/]+)/);
+    var base = (m ? m[1] : '') + '/.fancyindex/';
+    var head = document.head || document.getElementsByTagName('head')[0];
+    if (window.self === window.top && !m) document.documentElement.classList.add('standalone-web');
+    function link(rel, href) { var l = document.createElement('link'); l.rel = rel; l.href = base + href; head.appendChild(l); }
+    link('icon', 'icon.png');
+    link('apple-touch-icon', 'icon.png');
+    link('stylesheet', 'vendor/xterm.min.css');
+    ['vendor/ace/ace.js', 'vendor/ace/ext-searchbox.js', 'vendor/marked.min.js', 'vendor/purify.min.js',
+     'vendor/js-yaml.min.js', 'vendor/jszip.min.js', 'vendor/xterm.min.js'].forEach(function (src) {
+      var sc = document.createElement('script'); sc.src = base + src; sc.async = false; head.appendChild(sc);
+    });
+  })();
 </script>
-<!-- Front-end libraries are self-hosted (downloaded at image build time, see Dockerfile).
-     No third-party CDN is contacted at runtime: faster, works offline, no supply-chain risk. -->
-<script src="/.fancyindex/vendor/ace/ace.js" defer></script>
-<script src="/.fancyindex/vendor/ace/ext-searchbox.js" defer></script>
-<script src="/.fancyindex/vendor/marked.min.js" defer></script>
-<script src="/.fancyindex/vendor/purify.min.js" defer></script>
-<script src="/.fancyindex/vendor/js-yaml.min.js" defer></script>
-<script src="/.fancyindex/vendor/jszip.min.js" defer></script>
-<script src="/.fancyindex/vendor/pdf.min.js" defer></script>
-<link rel="stylesheet" href="/.fancyindex/vendor/xterm.min.css">
-<script src="/.fancyindex/vendor/xterm.min.js" defer></script>
 <style>
 :root {
   --bg:#0b162c;

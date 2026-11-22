@@ -1,0 +1,64 @@
+name: Auto Update GitHub Actions
+
+# Mỗi tuần: nâng các GitHub Action (ghim theo commit SHA) lên bản mới nhất nếu tương thích,
+# rồi commit thẳng lên main (không tạo Pull Request).
+on:
+  schedule:
+    - cron: "23 3 * * 1"   # Thứ Hai 03:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update_actions
+  cancel-in-progress: false
+
+jobs:
+  update-actions:
+    name: "🔄 Update pinned GitHub Actions"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: "📥 Checkout"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: "🔍 Check for new action releases (with compatibility check)"
+        id: check
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip install --quiet pyyaml
+          RESULT=$(python3 .github/scripts/update_actions.py)
+          echo "$RESULT" | python3 -m json.tool
+          python3 - "$RESULT" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, sys
+          r = json.loads(sys.argv[1])
+          print("## 🔄 GitHub Actions update\n")
+          for u in r["updated"]:
+              print(f"- ✅ `{u['action']}` {u['from']} ➡️ **{u['to']}**")
+          for s in r["skipped"]:
+              print(f"- ⚠️ `{s['action']}` {s['to']} kept back: {s['reason']}")
+          if not r["updated"] and not r["skipped"]:
+              print("All actions are up to date.")
+          PY
+          {
+            echo "changed=$( [ -n "$(git status --porcelain .github/workflows)" ] && echo true || echo false )"
+            echo "summary=$(echo "$RESULT" | python3 -c 'import json,sys; print(", ".join("%s %s" % (u["action"].split("/")[1], u["to"]) for u in json.load(sys.stdin)["updated"]))')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: "📤 Commit to main"
+        if: steps.check.outputs.changed == 'true'
+        env:
+          TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+          SUMMARY: ${{ steps.check.outputs.summary }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN}" ]; then
+            echo "::warning::New action versions are available (${SUMMARY}) but the WORKFLOW_TOKEN secret is not set. GitHub does not let the default token edit workflow files. See README > Automatic maintenance."
+            echo "⚠️ Not committed: add the **WORKFLOW_TOKEN** secret (see README)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # [skip ci]: chỉ đổi phiên bản action, không cần build lại các add-on
+          python3 .github/scripts/commit_to_main.py "ci: update GitHub Actions (${SUMMARY}) [skip ci]"

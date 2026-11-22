@@ -14,6 +14,7 @@ services:
       - TZ=America/Denver
 
       # !!! ĐỔI MẬT KHẨU NÀY trước khi khởi động lần đầu !!!
+      # Container sẽ KHÔNG khởi động nếu còn dùng mật khẩu mặc định 'changeme_strong_password'.
       # Tài khoản chính từ OMNI_USER mặc định có role "admin".
       # Để thêm tài khoản phụ (role: "user") và phân quyền thư mục (allowed_users, read_only),
       # chỉnh trực tiếp trong file ./data/options.json rồi restart container.
@@ -46,7 +47,8 @@ services:
       # - PUBLIC_URL=https://drive.example.com
 
       # Reverse proxy / Cloudflare Tunnel: IP hoặc dải IP proxy tin cậy để lấy đúng IP thật của client
-      # - TRUSTED_PROXIES=127.0.0.0/8,172.16.0.0/12
+      # Mặc định chỉ tin 127.0.0.1. Khai báo IP/dải mạng của container proxy (Cloudflared, NPM...), ví dụ:
+      # - TRUSTED_PROXIES=172.17.0.0/16
       # - REAL_IP_HEADER=X-Forwarded-For
 
       # Connect Hub: nếu bạn đổi cổng host bên dưới (ví dụ "8095:8090" hoặc "4450:445"),
