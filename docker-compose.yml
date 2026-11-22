@@ -15,6 +15,8 @@ services:
 
       # !!! ĐỔI MẬT KHẨU NÀY trước khi khởi động lần đầu !!!
       # Container sẽ KHÔNG khởi động nếu còn dùng mật khẩu mặc định 'changeme_strong_password'.
+      # OMNI_PASS chỉ được áp dụng khi giá trị THAY ĐỔI: đổi mật khẩu trong Web UI sẽ không bị ghi đè khi restart.
+      # Sau lần khởi động đầu có thể xoá OMNI_PASS (mật khẩu đã được băm trong ./data).
       # Tài khoản chính từ OMNI_USER mặc định có role "admin".
       # Để thêm tài khoản phụ (role: "user") và phân quyền thư mục (allowed_users, read_only),
       # chỉnh trực tiếp trong file ./data/options.json rồi restart container.
@@ -73,6 +75,10 @@ services:
       - ./storage:/storage
       - ./media:/media
       - ./share:/share
+
+      # TÙY CHỌN: tự xoá dòng OMNI_PASS khỏi file này sau khi mật khẩu đã được băm (lúc khởi động và mỗi lần
+      # đổi mật khẩu trong Web UI). Container sẽ có quyền GHI file compose: chỉ bật nếu bạn chấp nhận điều đó.
+      # - ./docker-compose.yml:/compose/docker-compose.yml
 
       # TÙY CHỌN: Toàn quyền máy chủ Host (chỉ tài khoản role "admin" mới truy cập được /host_system)
       # - /:/host_root:rw
