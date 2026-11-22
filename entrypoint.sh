@@ -232,8 +232,17 @@ PGID = os.environ.get("PGID", "1000")
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,31}$")
 
+# Tài khoản OmniDrive đã tạo ở lần khởi động trước. Bản Docker đổi UID của admin thành PUID (có thể < 1000,
+# ví dụ Unraid 99, Synology 1026...), nên các tài khoản này không được coi là tài khoản hệ thống.
+try:
+    KNOWN_USERS = set(open("/data/wpro/all_users.txt", encoding="utf-8").read().split())
+except Exception:
+    KNOWN_USERS = set()
+
 def is_system_account(name):
     # root, nginx, sshd, nobody... (UID < 1000 hoặc >= 60000) không bao giờ được dùng làm tài khoản OmniDrive
+    if name in KNOWN_USERS:
+        return name in ("root", "nobody")
     try:
         uid = pwd.getpwnam(name).pw_uid
         return uid < 1000 or uid >= 60000   # 65534 = nobody (dùng để chạy git an toàn)
