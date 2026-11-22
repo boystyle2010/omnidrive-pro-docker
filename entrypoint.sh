@@ -232,8 +232,17 @@ PGID = os.environ.get("PGID", "1000")
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,31}$")
 
+# Tài khoản OmniDrive đã tạo ở lần khởi động trước. Bản Docker đổi UID của admin thành PUID (có thể < 1000,
+# ví dụ Unraid 99, Synology 1026...), nên các tài khoản này không được coi là tài khoản hệ thống.
+try:
+    KNOWN_USERS = set(open("/data/wpro/all_users.txt", encoding="utf-8").read().split())
+except Exception:
+    KNOWN_USERS = set()
+
 def is_system_account(name):
     # root, nginx, sshd, nobody... (UID < 1000 hoặc >= 60000) không bao giờ được dùng làm tài khoản OmniDrive
+    if name in KNOWN_USERS:
+        return name in ("root", "nobody")
     try:
         uid = pwd.getpwnam(name).pw_uid
         return uid < 1000 or uid >= 60000   # 65534 = nobody (dùng để chạy git an toàn)
@@ -283,14 +292,36 @@ if pass_file:
         warn("OMNI_PASS_FILE unreadable: %s" % e)
 if not users and not (env_user and env_pass):
     env_user, env_pass = "admin", "changeme_strong_password"
+# OMNI_PASS / OMNI_PASS_FILE chỉ được áp dụng khi giá trị THAY ĐỔI so với lần áp dụng trước (so bằng dấu vân tay
+# PBKDF2, không lưu mật khẩu). Nhờ vậy mật khẩu đổi trong Web UI không bị biến cũ trong compose ghi đè khi khởi động lại.
+ENV_FP_FILE = "/data/wpro/env_pass_fp.json"
+def make_fp(pw):
+    salt = secrets.token_hex(16)
+    return {"salt": salt, "hash": hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), bytes.fromhex(salt), 100000).hex()}
+def match_fp(fp, pw):
+    try:
+        calc = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), bytes.fromhex(fp["salt"]), 100000).hex()
+        return hmac.compare_digest(calc, fp["hash"])
+    except Exception:
+        return False
+env_fp_new = None
 if env_user and env_pass:
-    if users and not pass_file and os.environ.get("OMNI_PASS"):
-        log("OMNI_PASS is set in the environment. Once first start succeeds you can remove it: the hashed account in options.json keeps working.")
-    if users and users[0].get("username") == env_user:
-        users[0]["password"] = env_pass
-        users[0]["role"] = users[0].get("role") or "admin"
+    try:
+        st = json.load(open(ENV_FP_FILE, encoding="utf-8"))
+    except Exception:
+        st = {}
+    exists = any(str(u.get("username", "")).strip() == env_user and u.get("password_hash") for u in users)
+    if exists and st.get("user") == env_user and match_fp(st.get("fp") or {}, env_pass):
+        log("OMNI_PASS has not changed since it was last applied -> keeping the current password of %s "
+            "(for example one changed in the Web UI). Set a NEW value in OMNI_PASS only when you want to reset it." % env_user)
     else:
-        users[0:1] = [{"username": env_user, "password": env_pass, "role": "admin"}] if users else [{"username": env_user, "password": env_pass, "role": "admin"}]
+        if users and users[0].get("username") == env_user:
+            users[0]["password"] = env_pass
+            users[0]["role"] = users[0].get("role") or "admin"
+        else:
+            users[0:1] = [{"username": env_user, "password": env_pass, "role": "admin"}] if users else [{"username": env_user, "password": env_pass, "role": "admin"}]
+        env_fp_new = {"user": env_user, "fp": make_fp(env_pass)}
+        log("Applied the password from %s for %s." % ("OMNI_PASS_FILE" if pass_file else "OMNI_PASS", env_user))
 
 plain = {}
 out = []
@@ -350,6 +381,12 @@ with open(tmp, "w", encoding="utf-8") as f:
 os.chmod(tmp, 0o600)
 os.replace(tmp, CFG)
 
+if env_fp_new:
+    with open(ENV_FP_FILE + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(env_fp_new, f)
+    os.chmod(ENV_FP_FILE + ".tmp", 0o600)
+    os.replace(ENV_FP_FILE + ".tmp", ENV_FP_FILE)
+
 admin_names = [e["username"] for e in out if e.get("role") == "admin"]
 all_names = [e["username"] for e in out]
 with open(ADMIN_USERS_FILE, "w", encoding="utf-8") as f:
@@ -407,6 +444,52 @@ for e in out:
 USEREOF
 
 SMB_ENABLED_RESOLVED="$SMB_ENABLED" RUN_USER_RESOLVED="$RUN_USER" python3 /usr/local/bin/wpro_users.py || exit_nok "Account provisioning failed (see the error above)."
+
+# Tự xoá OMNI_PASS khỏi docker-compose.yml (chỉ khi file compose được mount vào /compose/docker-compose.yml
+# hoặc đường dẫn trong OMNI_COMPOSE_FILE). Mật khẩu đã được băm trong /data nên không cần giữ bản rõ trong compose.
+cat << 'SCRUBEOF' > /usr/local/bin/wpro_compose_scrub.py
+#!/usr/bin/env python3
+import os, re, sys
+path = os.environ.get("OMNI_COMPOSE_FILE", "").strip() or "/compose/docker-compose.yml"
+if not os.path.isfile(path):
+    print("[INFO] OMNI_PASS is still set in your compose file (plain text). It is no longer needed: the password is stored "
+          "hashed in ./data. Remove it yourself, or mount the compose file to /compose/docker-compose.yml and "
+          "OmniDrive Pro removes it automatically.", flush=True)
+    sys.exit(0)
+LIST = re.compile(r"""^(\s*)-\s*["']?OMNI_PASS=(.*)$""")
+MAP = re.compile(r"""^(\s*)["']?OMNI_PASS["']?\s*:(.*)$""")
+NOTE = "# OMNI_PASS removed by OmniDrive Pro: the password is stored hashed in ./data (change it in the Web UI > Security)"
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        lines = f.read().splitlines(True)
+except Exception as e:
+    print("[WARN] Could not read %s: %s" % (path, e), flush=True); sys.exit(0)
+out, removed, kept = [], 0, 0
+for ln in lines:
+    body = ln.rstrip("\r\n")
+    m = LIST.match(body) or MAP.match(body)
+    if not m:
+        out.append(ln); continue
+    val = m.group(2).strip().strip("'\"")
+    # Giữ nguyên: tham chiếu biến (${OMNI_PASS} trong file .env) hoặc khối nhiều dòng (| >) để không làm hỏng YAML
+    if "${" in val or val[:1] in ("|", ">"):
+        kept += 1; out.append(ln); continue
+    out.append(m.group(1) + NOTE + (ln[len(body):] or "\n")); removed += 1
+if removed:
+    try:
+        # Ghi đè tại chỗ (giữ inode/quyền sở hữu) để hoạt động với bind mount một file
+        with open(path, "r+", encoding="utf-8") as f:
+            f.seek(0); f.write("".join(out)); f.truncate()
+        print("[INFO] Removed OMNI_PASS from %s. It takes effect the next time the container is recreated "
+              "(docker compose up -d); the running container is not affected." % path, flush=True)
+    except Exception as e:
+        print("[WARN] Could not update %s (mounted read-only?): %s" % (path, e), flush=True)
+if kept:
+    print("[INFO] OMNI_PASS in %s refers to another file (e.g. .env) or is a multi-line value: left unchanged, "
+          "remove it there yourself." % path, flush=True)
+SCRUBEOF
+chmod 700 /usr/local/bin/wpro_compose_scrub.py
+if [ -n "${OMNI_PASS:-}" ]; then python3 /usr/local/bin/wpro_compose_scrub.py || true; fi
 
 ADMIN_USERS=$(cat /data/wpro/admin_users.txt 2>/dev/null | tr -s ' ' | xargs || true)
 ALL_USERS=$(cat /data/wpro/all_users.txt 2>/dev/null | tr -s ' ' | xargs || true)
@@ -1674,8 +1757,11 @@ button:active { transform:scale(.98); }
             if not ok: self.send_json({"ok": False, "error": "Could not change the password"}, 500); return
             n = revoke_other_sessions(self.sid, only_user=user)
             append_audit(user, "PASSWORD_CHANGE", "other devices signed out: " + str(n), 200, ip)
-            env_override = bool(os.environ.get("OMNI_PASS") or os.environ.get("OMNI_PASS_FILE")) and os.environ.get("OMNI_USER", "") == user
-            self.send_json({"ok": True, "revoked": n, "env_override": env_override, "warnings": warnings}); return
+            # OMNI_PASS chỉ áp dụng khi giá trị đổi (dấu vân tay) nên không còn ghi đè mật khẩu này; dọn bản rõ khỏi compose
+            if os.environ.get("OMNI_PASS"):
+                try: subprocess.run(["python3", "/usr/local/bin/wpro_compose_scrub.py"], timeout=15, check=False)
+                except Exception: pass
+            self.send_json({"ok": True, "revoked": n, "env_override": False, "warnings": warnings}); return
 
         if route == "/__wpro_api/zip_prepare":
             try:
