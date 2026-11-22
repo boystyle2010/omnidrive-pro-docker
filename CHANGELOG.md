@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.32
+_Released: 2026-11-22_
+
+### 📦 Component & Version Matrix
+- **Docker Image Release:** Bumped from `v1.0.31` ➡️ **`v1.0.32`**
+- **Supported Architectures:** `linux/amd64` & `linux/arm64` *(Multi-Arch GHCR Manifest)*
+- **Alpine Base Image:** `Alpine 3.24`
+- **Nginx Engine:** `1.30.7-r0`
+- **Protocol Stack:** `Samba 4.23.8-r0` • `OpenSSH 10.3_p1-r2` • `vsftpd 3.0.5-r3` • `Python 3.14.10-r1`
+
+### 🔐 Package Integrity (GHCR Multi-Arch)
+- **Image Tag:** `ghcr.io/boystyle2010/omnidrive-pro-docker:1.0.32` (`sha256:ba1b3b22be658751b6833fe8ae27dab2f0aa235495d68b46eba23fb5e4c22eb3`)
+- **Latest Tag:** `ghcr.io/boystyle2010/omnidrive-pro-docker:latest`
+
+### 🚀 What's Changed
+- **Security & Core Engine:** Hardened RBAC (`admin`/`user`), enforced `allowed_users`/`read_only` isolation, fixed FTP symlink access, and added graceful shutdown.
+- **Web UI & IDE:** Refined FancyIndex interface, Cloud Code IDE, and client UX.
+- **Container Image:** Updated multi-arch Dockerfile build and healthcheck.
+- **Compose Stack:** Updated Docker Compose template and environment options.
+
+---
+
 ## 1.0.31
 _Released: 2026-11-19_
 
