@@ -18,7 +18,7 @@ fetch() { # <id> <url> <sha256>
 }
 
 fetch ace    "$REG/ace-builds/-/ace-builds-1.45.2.tgz"   5260354a14533fa8e94572597b1ff53025b1bb0a9b2e25d50ecf2a01e57aa9e0
-fetch marked "$REG/marked/-/marked-18.2.1.tgz"           d66c5213fc203466186060105b01f51896764ba64b3797d2620d02e28e34b8ca
+fetch marked "$REG/marked/-/marked-18.3.0.tgz"           ac4b23ef5425d83f7aad00a81640d29e5b0fd81a6361a30fa96b4b8bb228ad24
 fetch purify "$REG/dompurify/-/dompurify-3.5.0.tgz"      faa5f2bfe2814384b83d6edb4ed66812fbfdb2a654b4d59edd4b12304058ec20
 fetch yaml   "$REG/js-yaml/-/js-yaml-5.5.0.tgz"          23cb2e121ad69acd15fc786b7a9265a81eeeaa9f684ee73e717d6ecdbd8b0c90
 fetch jszip  "$REG/jszip/-/jszip-3.10.2.tgz"             4ee15dcb3f5433b736a41d091bcad37facee4a4aa96f9e21194789da886ac226
