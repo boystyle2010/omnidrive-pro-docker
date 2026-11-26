@@ -1,8 +1,8 @@
 ARG ALPINE_VERSION=3.24
 FROM alpine:${ALPINE_VERSION}
 
-ARG NGINX_VERSION=1.30.7-r0
-ARG APP_VERSION=1.0.36
+ARG NGINX_VERSION=1.30.8-r0
+ARG APP_VERSION=1.0.37
 
 LABEL maintainer="Minh Hua" \
       org.opencontainers.image.title="OmniDrive Pro (Standalone Docker)" \
@@ -15,7 +15,7 @@ ENV APP_VERSION=${APP_VERSION} \
 
 # Dấu vân tay phiên bản các gói Alpine quan trọng (Samba, OpenSSH, vsftpd, OpenSSL...). Workflow cập nhật giá trị
 # này mỗi khi Alpine phát hành bản vá -> lớp cài gói bên dưới được build lại với 'apk upgrade'.
-ARG APK_FINGERPRINT=06b5faeb9ea7221a
+ARG APK_FINGERPRINT=c61200beaaa30395
 
 # Cài đặt toàn bộ các gói dịch vụ tương đương bản Home Assistant Add-on
 RUN echo "Target nginx package: ${NGINX_VERSION} | packages: ${APK_FINGERPRINT}" \
