@@ -2,7 +2,7 @@ ARG ALPINE_VERSION=3.24
 FROM alpine:${ALPINE_VERSION}
 
 ARG NGINX_VERSION=1.30.8-r0
-ARG APP_VERSION=1.0.37
+ARG APP_VERSION=1.0.38
 
 LABEL maintainer="Minh Hua" \
       org.opencontainers.image.title="OmniDrive Pro (Standalone Docker)" \

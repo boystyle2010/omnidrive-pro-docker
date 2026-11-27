@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.38
+_Released: 2026-11-27_
+
+### 📦 Component & Version Matrix
+- **Docker Image Release:** Bumped from `v1.0.37` ➡️ **`v1.0.38`**
+- **Supported Architectures:** `linux/amd64` & `linux/arm64` *(Multi-Arch GHCR Manifest)*
+- **Alpine Base Image:** `Alpine 3.24`
+- **Nginx Engine:** `1.30.8-r0`
+- **Protocol Stack:** `Samba 4.23.8-r0` • `OpenSSH 10.3_p1-r2` • `vsftpd 3.0.5-r3` • `Python 3.14.10-r2`
+
+### 🔐 Package Integrity (GHCR Multi-Arch)
+- **Image Tag:** `ghcr.io/boystyle2010/omnidrive-pro-docker:1.0.38` (`sha256:6717e28ba2a416f50c1d5ad39620ee37688c4459b7313b8516a573661273b2b8`)
+- **Latest Tag:** `ghcr.io/boystyle2010/omnidrive-pro-docker:latest`
+
+### 🚀 What's Changed
+- **Update:** fix(entrypoint): show why a supervised service (vsftpd, sshd, smbd) stopped instead of discarding its output
+
+---
+
 ## 1.0.36
 _Released: 2026-11-25_
 
@@ -77,22 +96,3 @@ _Released: 2026-11-22_
 - **Web UI & IDE:** Refined FancyIndex interface, Cloud Code IDE, and client UX.
 - **Container Image:** Updated multi-arch Dockerfile build and healthcheck.
 - **Compose Stack:** Updated Docker Compose template and environment options.
-
----
-
-## 1.0.31
-_Released: 2026-11-19_
-
-### 📦 Component & Version Matrix
-- **Docker Image Release:** Bumped from `v1.0.30` ➡️ **`v1.0.31`**
-- **Supported Architectures:** `linux/amd64` & `linux/arm64` *(Multi-Arch GHCR Manifest)*
-- **Alpine Base Image:** `Alpine 3.24`
-- **Nginx Engine:** Updated from `1.30.6-r0` ➡️ **`1.30.7-r0`**
-- **Protocol Stack:** `Samba 4.23.8-r0` • `OpenSSH 10.3_p1-r2` • `vsftpd 3.0.5-r3` • `Python 3.14.10-r1`
-
-### 🔐 Package Integrity (GHCR Multi-Arch)
-- **Image Tag:** `ghcr.io/boystyle2010/omnidrive-pro-docker:1.0.31` (`sha256:1b53047bbee0c3659af84e3e0f52efd60f55f2dd3ffb1c5f967f34342066dede`)
-- **Latest Tag:** `ghcr.io/boystyle2010/omnidrive-pro-docker:latest`
-
-### 🚀 What's Changed
-- **Upstream Base & Engines:** Refreshed Alpine (`3.24`), Nginx (`1.30.7-r0`), Samba (`4.23.8-r0`), OpenSSH (`10.3_p1-r2`), and vsftpd (`3.0.5-r3`) with latest security patches.
