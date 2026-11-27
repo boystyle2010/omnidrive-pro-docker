@@ -62,7 +62,9 @@ supervise() {
         delay=2
         while true; do
             started=$(date +%s)
-            if [ "$quiet" = "1" ]; then "$@" </dev/null >"$out" 2>&1 & else "$@" </dev/null & fi
+            # quiet: stdin/stdout/stderr đều là file log (mở đọc-ghi). vsftpd ghi lỗi "500 OOPS" vào fd 0 (kênh điều khiển
+            # FTP) chứ không phải stderr, nên nếu fd 0 là /dev/null thì lý do dừng bị mất.
+            if [ "$quiet" = "1" ]; then : > "$out"; "$@" 0<>"$out" 1>&0 2>&0 & else "$@" </dev/null & fi
             child=$!
             rc=0; wait "$child" || rc=$?
             child=""
@@ -684,8 +686,6 @@ force_local_data_ssl=${FORCE}
 ssl_sslv2=NO
 ssl_sslv3=NO
 ssl_tlsv1=NO
-ssl_tlsv1_1=NO
-ssl_tlsv1_2=YES
 ssl_ciphers=HIGH
 require_ssl_reuse=NO
 EOF
