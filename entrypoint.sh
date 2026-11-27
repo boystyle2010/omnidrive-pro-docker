@@ -686,8 +686,6 @@ force_local_data_ssl=${FORCE}
 ssl_sslv2=NO
 ssl_sslv3=NO
 ssl_tlsv1=NO
-ssl_tlsv1_1=NO
-ssl_tlsv1_2=YES
 ssl_ciphers=HIGH
 require_ssl_reuse=NO
 EOF
