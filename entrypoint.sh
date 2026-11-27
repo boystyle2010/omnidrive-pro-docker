@@ -50,21 +50,33 @@ trap cleanup SIGTERM SIGINT
 
 # Chạy một dịch vụ nền và tự khởi động lại nếu nó bị dừng/crash (HEALTHCHECK của Docker chỉ kiểm tra tiến trình, không tự khởi động lại).
 # Cách dùng: supervise "<tên>" <quiet:0|1> lệnh [tham số...]   -> PID của vòng giám sát nằm trong $SUPERVISE_PID
+# quiet=1: output của dịch vụ không đưa ra log thường xuyên mà ghi vào một file tạm; khi dịch vụ dừng, vài dòng cuối
+# (ví dụ "500 OOPS: ..." của vsftpd) được in kèm cảnh báo để biết lý do. Cùng một lỗi chỉ in lại khi nội dung thay đổi.
 supervise() {
     local name="$1" quiet="$2"; shift 2
     (
         child=""
+        out="/tmp/omnidrive-svc-$(printf '%s' "$name" | tr -c 'A-Za-z0-9' '_').log"
+        last_err=""
         trap '[ -n "$child" ] && kill -TERM "$child" 2>/dev/null; wait 2>/dev/null; exit 0' TERM INT
         delay=2
         while true; do
             started=$(date +%s)
-            if [ "$quiet" = "1" ]; then "$@" </dev/null >/dev/null 2>&1 & else "$@" </dev/null & fi
+            if [ "$quiet" = "1" ]; then "$@" </dev/null >"$out" 2>&1 & else "$@" </dev/null & fi
             child=$!
             rc=0; wait "$child" || rc=$?
             child=""
             # Crash ngay sau khi khởi động -> tăng dần thời gian chờ (tối đa 60s) để không spam log
             if [ $(( $(date +%s) - started )) -lt 30 ]; then delay=$(( delay * 2 )); [ "$delay" -gt 60 ] && delay=60; else delay=2; fi
-            log_warn "${name} stopped (exit code ${rc}); restarting in ${delay}s..."
+            err=""
+            [ "$quiet" = "1" ] && [ -s "$out" ] && err=$(tail -n 5 "$out" | tr -d '\r')
+            if [ -n "$err" ] && [ "$err" != "$last_err" ]; then
+                log_warn "${name} stopped (exit code ${rc}); restarting in ${delay}s. Last output:"
+                printf '%s\n' "$err" | sed 's/^/          | /'
+                last_err="$err"
+            else
+                log_warn "${name} stopped (exit code ${rc}); restarting in ${delay}s..."
+            fi
             sleep "$delay" & wait $!
         done
     ) &
